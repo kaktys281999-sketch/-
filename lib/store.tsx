@@ -5,14 +5,24 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   ReactNode,
 } from "react";
 import { AppState, Operation, Account, CreditConfig, Goal } from "./types";
 import { getCategorySign, CREDIT_PAYMENT_CATEGORY } from "./categories";
 import { monthKeyFromISO, todayISO } from "./format";
+import {
+  SyncConfig,
+  EMPTY_SYNC,
+  toPayload,
+  fromPayload,
+  pull,
+  push,
+} from "./sync";
 
 const STORAGE_KEY = "finance-tracker-v1";
+const SYNC_KEY = "finance-tracker-sync-v1";
 
 // Начальное состояние согласно ТЗ
 const INITIAL_STATE: AppState = {
@@ -34,7 +44,16 @@ const INITIAL_STATE: AppState = {
     target: 40000,
     saved: 0,
   },
+  updatedAt: 0,
 };
+
+export type SyncStatusKind = "idle" | "syncing" | "ok" | "error" | "offline";
+
+export interface SyncState {
+  status: SyncStatusKind;
+  message: string;
+  lastSync: number | null;
+}
 
 interface StoreContextValue {
   state: AppState;
@@ -45,6 +64,12 @@ interface StoreContextValue {
   updateGoal: (goal: Partial<Goal>) => void;
   updateCredit: (credit: Partial<CreditConfig>) => void;
   resetAll: () => void;
+  // Синхронизация с Google-таблицей
+  sync: SyncConfig;
+  syncState: SyncState;
+  setSyncConfig: (partial: Partial<SyncConfig>) => void;
+  pullNow: () => Promise<void>;
+  pushNow: () => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextValue | null>(null);
@@ -61,9 +86,21 @@ function loadState(): AppState {
       operations: parsed.operations ?? INITIAL_STATE.operations,
       credit: { ...INITIAL_STATE.credit, ...parsed.credit },
       goal: { ...INITIAL_STATE.goal, ...parsed.goal },
+      updatedAt: parsed.updatedAt ?? 0,
     };
   } catch {
     return INITIAL_STATE;
+  }
+}
+
+function loadSyncConfig(): SyncConfig {
+  if (typeof window === "undefined") return EMPTY_SYNC;
+  try {
+    const raw = window.localStorage.getItem(SYNC_KEY);
+    if (!raw) return EMPTY_SYNC;
+    return { ...EMPTY_SYNC, ...JSON.parse(raw) };
+  } catch {
+    return EMPTY_SYNC;
   }
 }
 
@@ -83,38 +120,148 @@ export function operationDelta(op: Operation): number {
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
   const [hydrated, setHydrated] = useState(false);
+  const [sync, setSync] = useState<SyncConfig>(EMPTY_SYNC);
+  const [syncState, setSyncState] = useState<SyncState>({
+    status: "idle",
+    message: "",
+    lastSync: null,
+  });
 
+  // Ссылки на актуальные значения для эффектов/обработчиков
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const syncRef = useRef(sync);
+  syncRef.current = sync;
+  // Флаг: применяем данные из таблицы — не отправлять их обратно
+  const applyingRemote = useRef(false);
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Загрузка локальных данных и конфигурации синхронизации
   useEffect(() => {
     setState(loadState());
+    setSync(loadSyncConfig());
     setHydrated(true);
   }, []);
 
+  // Сохранение в localStorage
   useEffect(() => {
     if (!hydrated) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state, hydrated]);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    window.localStorage.setItem(SYNC_KEY, JSON.stringify(sync));
+  }, [sync, hydrated]);
+
+  // Применить данные из таблицы локально (без обратной отправки)
+  const applyRemote = (s: AppState) => {
+    applyingRemote.current = true;
+    setState(s);
+  };
+
+  // Загрузить из таблицы (с разрешением конфликта по updatedAt)
+  const pullNow = async () => {
+    const url = syncRef.current.url.trim();
+    if (!url) return;
+    setSyncState((p) => ({ ...p, status: "syncing", message: "Загрузка…" }));
+    try {
+      const remote = await pull(url);
+      if (remote && remote.updatedAt >= stateRef.current.updatedAt) {
+        applyRemote(fromPayload(remote));
+      } else if (!remote || remote.updatedAt < stateRef.current.updatedAt) {
+        // В таблице пусто или данные старее — зальём своё
+        await push(url, toPayload(stateRef.current));
+      }
+      setSyncState({
+        status: "ok",
+        message: "Синхронизировано",
+        lastSync: Date.now(),
+      });
+    } catch (e) {
+      setSyncState({
+        status: "error",
+        message: e instanceof Error ? e.message : "Ошибка синхронизации",
+        lastSync: null,
+      });
+    }
+  };
+
+  // Сохранить в таблицу
+  const pushNow = async () => {
+    const url = syncRef.current.url.trim();
+    if (!url) return;
+    setSyncState((p) => ({ ...p, status: "syncing", message: "Сохранение…" }));
+    try {
+      await push(url, toPayload(stateRef.current));
+      setSyncState({
+        status: "ok",
+        message: "Сохранено в таблицу",
+        lastSync: Date.now(),
+      });
+    } catch (e) {
+      setSyncState({
+        status: "error",
+        message: e instanceof Error ? e.message : "Ошибка сохранения",
+        lastSync: null,
+      });
+    }
+  };
+
+  // При запуске: если настроена авто-синхронизация — подтянуть из таблицы
+  useEffect(() => {
+    if (!hydrated) return;
+    if (sync.url.trim() && sync.auto) {
+      void pullNow();
+    }
+    // запускаем один раз после гидрации
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
+
+  // Авто-отправка изменений в таблицу (с задержкой), кроме применённых из таблицы
+  useEffect(() => {
+    if (!hydrated) return;
+    if (applyingRemote.current) {
+      applyingRemote.current = false;
+      return;
+    }
+    if (!sync.url.trim() || !sync.auto) return;
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => {
+      void pushNow();
+    }, 1500);
+    return () => {
+      if (pushTimer.current) clearTimeout(pushTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, hydrated]);
+
   const value = useMemo<StoreContextValue>(() => {
+    const touch = <T extends Partial<AppState>>(patch: T) => ({
+      ...patch,
+      updatedAt: Date.now(),
+    });
+
     const addOperation = (op: Omit<Operation, "id">) => {
       setState((s) => ({
         ...s,
-        operations: [...s.operations, { ...op, id: uid() }],
+        ...touch({ operations: [...s.operations, { ...op, id: uid() }] }),
       }));
     };
 
     const updateOperation = (id: string, op: Omit<Operation, "id">) => {
       setState((s) => ({
         ...s,
-        operations: s.operations.map((o) =>
-          o.id === id ? { ...op, id } : o
-        ),
+        ...touch({
+          operations: s.operations.map((o) => (o.id === id ? { ...op, id } : o)),
+        }),
       }));
     };
 
     const deleteOperation = (id: string) => {
       setState((s) => ({
         ...s,
-        operations: s.operations.filter((o) => o.id !== id),
+        ...touch({ operations: s.operations.filter((o) => o.id !== id) }),
       }));
     };
 
@@ -127,23 +274,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           .reduce((sum, o) => sum + operationDelta(o), 0);
         return {
           ...s,
-          accounts: s.accounts.map((a) =>
-            a.id === id ? { ...a, baseBalance: currentBalance - deltaSum } : a
-          ),
+          ...touch({
+            accounts: s.accounts.map((a) =>
+              a.id === id ? { ...a, baseBalance: currentBalance - deltaSum } : a
+            ),
+          }),
         };
       });
     };
 
     const updateGoal = (goal: Partial<Goal>) => {
-      setState((s) => ({ ...s, goal: { ...s.goal, ...goal } }));
+      setState((s) => ({ ...s, ...touch({ goal: { ...s.goal, ...goal } }) }));
     };
 
     const updateCredit = (credit: Partial<CreditConfig>) => {
-      setState((s) => ({ ...s, credit: { ...s.credit, ...credit } }));
+      setState((s) => ({
+        ...s,
+        ...touch({ credit: { ...s.credit, ...credit } }),
+      }));
     };
 
     const resetAll = () => {
-      setState(INITIAL_STATE);
+      setState({ ...INITIAL_STATE, updatedAt: Date.now() });
+    };
+
+    const setSyncConfig = (partial: Partial<SyncConfig>) => {
+      setSync((c) => ({ ...c, ...partial }));
     };
 
     return {
@@ -155,8 +311,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateGoal,
       updateCredit,
       resetAll,
+      sync,
+      syncState,
+      setSyncConfig,
+      pullNow,
+      pushNow,
     };
-  }, [state]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, sync, syncState]);
 
   return (
     <StoreContext.Provider value={value}>{children}</StoreContext.Provider>

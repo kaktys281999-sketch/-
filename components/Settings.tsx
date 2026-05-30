@@ -16,6 +16,8 @@ export function Settings() {
     <div className="space-y-3">
       <h1 className="px-1 text-lg font-bold">Настройки</h1>
 
+      <SyncCard fieldCls={fieldCls} />
+
       {/* Балансы счетов */}
       <Card>
         <div className="mb-3 text-sm font-medium text-slate-500">
@@ -170,5 +172,87 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-slate-600">{label}</span>
       <span className="font-medium">{value}</span>
     </div>
+  );
+}
+
+const STATUS_STYLE: Record<string, string> = {
+  ok: "text-emerald-600",
+  error: "text-red-600",
+  syncing: "text-slate-500",
+  idle: "text-slate-400",
+  offline: "text-amber-600",
+};
+
+function SyncCard({ fieldCls }: { fieldCls: string }) {
+  const { sync, syncState, setSyncConfig, pullNow, pushNow } = useStore();
+  const busy = syncState.status === "syncing";
+
+  return (
+    <Card>
+      <div className="mb-1 text-sm font-medium text-slate-500">
+        Синхронизация с Google-таблицей
+      </div>
+      <p className="mb-3 text-xs text-slate-400">
+        Данные хранятся в Google-таблице, и приложение работает одинаково на
+        телефоне и на компьютере. Инструкция по настройке — в README проекта.
+      </p>
+
+      <label className="mb-1 block text-sm text-slate-600">
+        Ссылка веб-приложения (Apps Script)
+      </label>
+      <input
+        type="url"
+        inputMode="url"
+        placeholder="https://script.google.com/macros/s/.../exec"
+        value={sync.url}
+        onChange={(e) => setSyncConfig({ url: e.target.value })}
+        className={`${fieldCls} text-xs`}
+      />
+
+      <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+        <input
+          type="checkbox"
+          checked={sync.auto}
+          onChange={(e) => setSyncConfig({ auto: e.target.checked })}
+          className="h-4 w-4 accent-brand"
+        />
+        Синхронизировать автоматически
+      </label>
+
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          disabled={busy || !sync.url.trim()}
+          onClick={() => void pullNow()}
+          className="flex-1 rounded-xl bg-slate-100 py-3 text-sm font-semibold text-slate-700 active:bg-slate-200 disabled:opacity-40"
+        >
+          Загрузить из таблицы
+        </button>
+        <button
+          type="button"
+          disabled={busy || !sync.url.trim()}
+          onClick={() => void pushNow()}
+          className="flex-1 rounded-xl bg-brand py-3 text-sm font-semibold text-white active:bg-brand-dark disabled:opacity-40"
+        >
+          Сохранить в таблицу
+        </button>
+      </div>
+
+      {syncState.message && (
+        <div
+          className={`mt-2 text-xs ${
+            STATUS_STYLE[syncState.status] ?? "text-slate-400"
+          }`}
+        >
+          {syncState.message}
+          {syncState.lastSync
+            ? ` · ${new Date(syncState.lastSync).toLocaleTimeString("ru-RU", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}`
+            : ""}
+        </div>
+      )}
+    </Card>
   );
 }

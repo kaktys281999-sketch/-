@@ -42,4 +42,6 @@ export interface AppState {
   operations: Operation[];
   credit: CreditConfig;
   goal: Goal;
+  // момент последнего изменения (мс) — для разрешения конфликтов синхронизации
+  updatedAt: number;
 }
