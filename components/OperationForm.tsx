@@ -63,7 +63,9 @@ export function OperationForm({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const amount = Math.abs(Number(draft.amount.replace(",", ".")));
+    const amount = Math.abs(
+      Number(draft.amount.replace(/\s/g, "").replace(",", "."))
+    );
     if (!amount || Number.isNaN(amount)) return;
     onSubmit({
       date: draft.date,

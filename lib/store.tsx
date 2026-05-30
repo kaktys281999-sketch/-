@@ -10,7 +10,7 @@ import {
 } from "react";
 import { AppState, Operation, Account, CreditConfig, Goal } from "./types";
 import { getCategorySign, CREDIT_PAYMENT_CATEGORY } from "./categories";
-import { monthKeyFromISO } from "./format";
+import { monthKeyFromISO, todayISO } from "./format";
 
 const STORAGE_KEY = "finance-tracker-v1";
 
@@ -228,14 +228,14 @@ export function creditInfo(state: AppState): CreditInfo {
       (o) =>
         o.type === "credit_loan" &&
         o.category === CREDIT_PAYMENT_CATEGORY &&
-        o.date >= credit.receivedDate
+        o.date > credit.receivedDate
     )
     .reduce((sum, o) => sum + o.amount, 0);
 
   const remaining = totalDue - paid;
 
   // Ближайший платёж — первая будущая (>= сегодня) дата из расписания
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const upcoming = [...credit.paymentDates].sort().find((d) => d >= today);
   const nextPaymentDate = upcoming ?? null;
 

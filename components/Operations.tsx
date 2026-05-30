@@ -54,6 +54,7 @@ export function Operations({ month }: { month: string }) {
         <h1 className="px-1 text-lg font-bold">Редактировать операцию</h1>
         <Card>
           <OperationForm
+            key={editing.id}
             initial={editing}
             submitLabel="Сохранить"
             onCancel={() => setEditing(null)}

@@ -1,7 +1,56 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { formatMoney } from "@/lib/format";
+
+// Числовое поле с локальным буфером ввода: позволяет очищать/вводить
+// промежуточные значения, не схлопывая значение в 0, и фиксирует
+// только корректные числа.
+export function NumberInput({
+  value,
+  onCommit,
+  className = "",
+}: {
+  value: number;
+  onCommit: (n: number) => void;
+  className?: string;
+}) {
+  const [text, setText] = useState<string>(() => String(value));
+  // последнее значение, которое мы сами зафиксировали — чтобы отличать
+  // внешние изменения (сброс, операции) от собственных
+  const lastValue = useRef<number>(value);
+
+  useEffect(() => {
+    if (value !== lastValue.current) {
+      lastValue.current = value;
+      setText(String(value));
+    }
+  }, [value]);
+
+  return (
+    <input
+      type="number"
+      inputMode="numeric"
+      value={text}
+      onChange={(e) => {
+        const t = e.target.value;
+        setText(t);
+        if (t === "" || t === "-") return;
+        const n = Number(t);
+        if (!Number.isNaN(n)) {
+          lastValue.current = n;
+          onCommit(n);
+        }
+      }}
+      onBlur={() => {
+        if (text === "" || Number.isNaN(Number(text))) {
+          setText(String(value));
+        }
+      }}
+      className={className}
+    />
+  );
+}
 
 export function Card({
   children,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { monthKey } from "@/lib/format";
 import { MonthSwitcher } from "@/components/MonthSwitcher";
 import { Summary } from "@/components/Summary";
@@ -19,9 +19,23 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("summary");
-  const [month, setMonth] = useState<string>(() => monthKey(new Date()));
+  const [month, setMonth] = useState<string>("");
+
+  // Текущий месяц и работа с localStorage — только на клиенте, чтобы
+  // статически отрендеренный HTML не расходился с гидрацией.
+  useEffect(() => {
+    setMonth(monthKey(new Date()));
+  }, []);
 
   const showMonthSwitcher = tab === "summary" || tab === "operations";
+
+  if (!month) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-md items-center justify-center p-6 text-slate-400">
+        Загрузка…
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col">

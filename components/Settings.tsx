@@ -2,7 +2,7 @@
 
 import { useStore, currentBalance, creditInfo } from "@/lib/store";
 import { formatMoney, formatDateLong } from "@/lib/format";
-import { Card } from "./ui";
+import { Card, NumberInput } from "./ui";
 
 export function Settings() {
   const { state, setAccountBalance, updateGoal, updateCredit, resetAll } =
@@ -25,13 +25,9 @@ export function Settings() {
           {state.accounts.map((a) => (
             <div key={a.id} className="flex items-center justify-between gap-3">
               <label className="text-sm">{a.name}</label>
-              <input
-                type="number"
-                step="1"
+              <NumberInput
                 value={Math.round(currentBalance(state, a.id))}
-                onChange={(e) =>
-                  setAccountBalance(a.id, Number(e.target.value))
-                }
+                onCommit={(n) => setAccountBalance(a.id, n)}
                 className={`${fieldCls} w-36 text-right`}
               />
             </div>
@@ -62,13 +58,9 @@ export function Settings() {
               <label className="mb-1 block text-sm text-slate-600">
                 Цель, ₽
               </label>
-              <input
-                type="number"
-                step="1"
+              <NumberInput
                 value={state.goal.target}
-                onChange={(e) =>
-                  updateGoal({ target: Number(e.target.value) })
-                }
+                onCommit={(n) => updateGoal({ target: n })}
                 className={fieldCls}
               />
             </div>
@@ -76,11 +68,9 @@ export function Settings() {
               <label className="mb-1 block text-sm text-slate-600">
                 Накоплено, ₽
               </label>
-              <input
-                type="number"
-                step="1"
+              <NumberInput
                 value={state.goal.saved}
-                onChange={(e) => updateGoal({ saved: Number(e.target.value) })}
+                onCommit={(n) => updateGoal({ saved: n })}
                 className={fieldCls}
               />
             </div>
@@ -97,13 +87,9 @@ export function Settings() {
               <label className="mb-1 block text-sm text-slate-600">
                 Получено, ₽
               </label>
-              <input
-                type="number"
-                step="1"
+              <NumberInput
                 value={state.credit.received}
-                onChange={(e) =>
-                  updateCredit({ received: Number(e.target.value) })
-                }
+                onCommit={(n) => updateCredit({ received: n })}
                 className={fieldCls}
               />
             </div>
@@ -126,13 +112,9 @@ export function Settings() {
               <label className="mb-1 block text-sm text-slate-600">
                 Платёж, ₽
               </label>
-              <input
-                type="number"
-                step="1"
+              <NumberInput
                 value={state.credit.payment}
-                onChange={(e) =>
-                  updateCredit({ payment: Number(e.target.value) })
-                }
+                onCommit={(n) => updateCredit({ payment: n })}
                 className={fieldCls}
               />
             </div>
@@ -140,13 +122,9 @@ export function Settings() {
               <label className="mb-1 block text-sm text-slate-600">
                 Кол-во платежей
               </label>
-              <input
-                type="number"
-                step="1"
+              <NumberInput
                 value={state.credit.count}
-                onChange={(e) =>
-                  updateCredit({ count: Number(e.target.value) })
-                }
+                onCommit={(n) => updateCredit({ count: n })}
                 className={fieldCls}
               />
             </div>
