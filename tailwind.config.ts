@@ -10,9 +10,14 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          DEFAULT: "#2563eb",
-          dark: "#1d4ed8",
+          DEFAULT: "#6926E3",
+          dark: "#5417C2",
+          deep: "#3D0E96",
+          tint: "#F3F0FE",
         },
+      },
+      fontFamily: {
+        sans: ["var(--font-manrope)", "system-ui", "sans-serif"],
       },
     },
   },

@@ -10,6 +10,7 @@ import {
 } from "@/lib/store";
 import { formatMoney, formatDateLong, monthLabel } from "@/lib/format";
 import { Card, Money, ProgressBar } from "./ui";
+import { Logo } from "./Logo";
 
 export function Summary({ month }: { month: string }) {
   const { state } = useStore();
@@ -24,19 +25,27 @@ export function Summary({ month }: { month: string }) {
   return (
     <div className="space-y-3">
       {/* Реальная позиция — крупно */}
-      <Card
-        className={
-          position < 0 ? "border border-red-200 bg-red-50" : "bg-brand text-white"
-        }
+      <div
+        className={`relative overflow-hidden rounded-3xl p-5 shadow-sm ${
+          position < 0
+            ? "border border-red-200 bg-red-50"
+            : "bg-gradient-to-br from-brand to-brand-deep text-white"
+        }`}
       >
+        {/* Водяной знак логотипа */}
+        <Logo
+          className={`pointer-events-none absolute -right-5 -top-4 h-28 w-28 ${
+            position < 0 ? "text-red-200/50" : "text-white/10"
+          }`}
+        />
         <div
-          className={`text-sm ${
-            position < 0 ? "text-red-700" : "text-blue-100"
+          className={`relative text-sm font-medium ${
+            position < 0 ? "text-red-700" : "text-white/70"
           }`}
         >
           Реальная позиция
         </div>
-        <div className="mt-1 text-3xl font-bold">
+        <div className="relative mt-1 text-4xl font-extrabold tracking-tight">
           <Money
             value={position}
             colorNegative={position < 0}
@@ -44,13 +53,13 @@ export function Summary({ month }: { month: string }) {
           />
         </div>
         <div
-          className={`mt-1 text-xs ${
-            position < 0 ? "text-red-600" : "text-blue-100"
+          className={`relative mt-1 text-xs ${
+            position < 0 ? "text-red-600" : "text-white/60"
           }`}
         >
           На руках − остаток долга по кредиту
         </div>
-      </Card>
+      </div>
 
       {/* На руках + счета */}
       <Card>
