@@ -61,7 +61,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-2xl border border-slate-100 bg-white p-4 ${className}`}
+      className={`rounded-2xl border border-slate-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 ${className}`}
     >
       {children}
     </div>
@@ -86,7 +86,7 @@ export function Money({
   return (
     <span
       className={`${
-        colorNegative && negative ? "text-red-600" : ""
+        colorNegative && negative ? "text-red-600 dark:text-red-400" : ""
       } ${className}`}
     >
       {text}
@@ -97,7 +97,7 @@ export function Money({
 export function ProgressBar({ percent }: { percent: number }) {
   const clamped = Math.max(0, Math.min(100, percent));
   return (
-    <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200">
+    <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
       <div
         className="h-full rounded-full bg-brand transition-all"
         style={{ width: `${clamped}%` }}

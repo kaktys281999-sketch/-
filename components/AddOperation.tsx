@@ -13,7 +13,7 @@ export function AddOperation({ onAdded }: { onAdded?: () => void }) {
     <div className="space-y-3">
       <h1 className="px-1 text-lg font-bold">Добавить операцию</h1>
       {savedAt && (
-        <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+        <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
           Операция добавлена ✓
         </div>
       )}

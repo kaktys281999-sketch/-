@@ -71,7 +71,7 @@ export function Operations({ month }: { month: string }) {
                 setEditing(null);
               }
             }}
-            className="mt-3 w-full rounded-xl bg-red-50 py-3 text-sm font-semibold text-red-600 active:bg-red-100"
+            className="mt-3 w-full rounded-xl bg-red-50 py-3 text-sm font-semibold text-red-600 active:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:active:bg-red-950/60"
           >
             Удалить операцию
           </button>
@@ -88,7 +88,7 @@ export function Operations({ month }: { month: string }) {
       <select
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
-        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 outline-none focus:border-brand"
+        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
       >
         <option value="">Все категории</option>
         {ALL_CATEGORIES.map((c) => (
@@ -100,7 +100,7 @@ export function Operations({ month }: { month: string }) {
 
       {byDay.length === 0 && (
         <Card>
-          <p className="py-6 text-center text-sm text-slate-400">
+          <p className="py-6 text-center text-sm text-slate-400 dark:text-slate-500">
             Операций за этот месяц нет
           </p>
         </Card>
@@ -111,28 +111,28 @@ export function Operations({ month }: { month: string }) {
         return (
           <div key={date}>
             <div className="mb-1 flex items-center justify-between px-1">
-              <span className="text-sm font-semibold text-slate-700">
+              <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
                 {formatDateLong(date)}
               </span>
               {expense > 0 && (
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-slate-400 dark:text-slate-500">
                   расход {formatMoney(expense)}
                 </span>
               )}
             </div>
-            <Card className="divide-y divide-slate-100 !p-0">
+            <Card className="divide-y divide-slate-100 !p-0 dark:divide-slate-800">
               {ops.map((op) => (
                 <button
                   key={op.id}
                   type="button"
                   onClick={() => setEditing(op)}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left active:bg-slate-50"
+                  className="flex w-full items-center justify-between px-4 py-3 text-left active:bg-slate-50 dark:active:bg-slate-800/60"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">
                       {op.category}
                     </div>
-                    <div className="truncate text-xs text-slate-400">
+                    <div className="truncate text-xs text-slate-400 dark:text-slate-500">
                       {accountName(op.accountId)}
                       {op.note ? ` · ${op.note}` : ""}
                     </div>

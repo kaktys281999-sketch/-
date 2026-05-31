@@ -31,7 +31,7 @@ export function SpendingBreakdown({
   return (
     <Card>
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm font-medium text-slate-500">
+        <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
           Расходы по категориям
         </span>
         {total > 0 && (
@@ -40,7 +40,7 @@ export function SpendingBreakdown({
       </div>
 
       {rows.length === 0 ? (
-        <p className="py-3 text-center text-sm text-slate-400">
+        <p className="py-3 text-center text-sm text-slate-400 dark:text-slate-500">
           Расходов в этом месяце пока нет
         </p>
       ) : (
@@ -50,14 +50,14 @@ export function SpendingBreakdown({
             return (
               <div key={r.category}>
                 <div className="mb-1 flex items-center justify-between text-sm">
-                  <span className="truncate pr-2 text-slate-700">
+                  <span className="truncate pr-2 text-slate-700 dark:text-slate-200">
                     {r.category}
                   </span>
-                  <span className="shrink-0 tabular-nums text-slate-500">
+                  <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
                     {formatMoney(r.amount)} · {Math.round(percent)}%
                   </span>
                 </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                   <div
                     className="h-full rounded-full bg-brand transition-all"
                     style={{

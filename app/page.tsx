@@ -51,8 +51,8 @@ export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col">
       {/* Лаконичная шапка */}
-      <header className="sticky top-0 z-10 bg-slate-50/85 px-5 pb-2 pt-4 backdrop-blur">
-        <span className="text-base font-bold tracking-tight text-slate-900">
+      <header className="sticky top-0 z-10 bg-slate-50/85 px-5 pb-2 pt-4 backdrop-blur dark:bg-slate-950/85">
+        <span className="text-base font-bold tracking-tight text-slate-900 dark:text-slate-100">
           Финансы
         </span>
       </header>
@@ -73,7 +73,7 @@ export default function Home() {
       </div>
 
       {/* Нижняя навигация */}
-      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200/70 bg-white/95 backdrop-blur">
+      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200/70 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
         <div className="mx-auto flex max-w-md px-2 pb-[env(safe-area-inset-bottom)]">
           {TABS.map(({ id, label, Icon }) => {
             const active = tab === id;

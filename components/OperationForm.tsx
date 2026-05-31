@@ -80,9 +80,10 @@ export function OperationForm({
     }
   }
 
-  const labelCls = "block text-sm font-medium text-slate-600 mb-1";
+  const labelCls =
+    "block text-sm font-medium text-slate-600 mb-1 dark:text-slate-300";
   const fieldCls =
-    "w-full rounded-xl border border-slate-200 bg-white px-3 py-3 outline-none focus:border-brand";
+    "w-full rounded-xl border border-slate-200 bg-white px-3 py-3 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -108,7 +109,7 @@ export function OperationForm({
               className={`rounded-xl px-3 py-2.5 text-sm font-medium transition ${
                 draft.type === t.type
                   ? "bg-brand text-white"
-                  : "bg-slate-100 text-slate-700"
+                  : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
               }`}
             >
               {t.label}
@@ -182,7 +183,7 @@ export function OperationForm({
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 rounded-xl bg-slate-100 py-4 text-base font-semibold text-slate-700 active:bg-slate-200"
+            className="flex-1 rounded-xl bg-slate-100 py-4 text-base font-semibold text-slate-700 active:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:active:bg-slate-700"
           >
             Отмена
           </button>
