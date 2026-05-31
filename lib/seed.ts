@@ -84,6 +84,8 @@ export function applySeed(state: AppState): AppState {
     accounts,
     operations,
     goal: { ...state.goal, name: "Квартира", target: 40000, saved: 0 },
-    updatedAt: Date.now(),
+    // фиксированная «низкая» метка времени: любое реальное изменение
+    // (Date.now()) будет новее и не будет перетёрто импортом на другом устройстве
+    updatedAt: Date.parse("2026-06-01T00:00:00Z"),
   };
 }
