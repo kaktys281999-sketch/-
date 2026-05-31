@@ -15,6 +15,7 @@ import { monthKeyFromISO, todayISO } from "./format";
 import {
   SyncConfig,
   EMPTY_SYNC,
+  DEFAULT_SYNC_URL,
   toPayload,
   fromPayload,
   pull,
@@ -98,7 +99,11 @@ function loadSyncConfig(): SyncConfig {
   try {
     const raw = window.localStorage.getItem(SYNC_KEY);
     if (!raw) return EMPTY_SYNC;
-    return { ...EMPTY_SYNC, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    // если ссылка не задана — подставляем зашитую по умолчанию
+    const url =
+      parsed.url && String(parsed.url).trim() ? parsed.url : DEFAULT_SYNC_URL;
+    return { ...EMPTY_SYNC, ...parsed, url };
   } catch {
     return EMPTY_SYNC;
   }

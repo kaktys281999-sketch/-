@@ -37,7 +37,12 @@ export interface SyncConfig {
   auto: boolean;
 }
 
-export const EMPTY_SYNC: SyncConfig = { url: "", auto: true };
+// Ссылка веб-приложения Google Apps Script по умолчанию — зашита в приложение,
+// чтобы синхронизация работала без ручного ввода в настройках.
+export const DEFAULT_SYNC_URL =
+  "https://script.google.com/macros/s/AKfycbxEUm8i2lhjmVzhKVFtdatnH7rPrParDsTaty3yaN39JXhxRWGbq-LL0KxVm17qYvTA/exec";
+
+export const EMPTY_SYNC: SyncConfig = { url: DEFAULT_SYNC_URL, auto: true };
 
 function isValidPayload(d: unknown): d is SyncPayload {
   return (
