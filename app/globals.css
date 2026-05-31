@@ -12,7 +12,7 @@ body {
 }
 
 body {
-  @apply bg-brand-tint text-slate-900 antialiased;
+  @apply bg-slate-50 text-slate-900 antialiased;
   font-family: var(--font-manrope), system-ui, sans-serif;
   -webkit-tap-highlight-color: transparent;
 }

@@ -10,7 +10,7 @@ export function MonthSwitcher({
   onChange: (key: string) => void;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-2xl bg-white p-2 shadow-sm">
+    <div className="flex items-center justify-between rounded-2xl border border-slate-100 bg-white p-2">
       <button
         type="button"
         onClick={() => onChange(shiftMonth(value, -1))}
