@@ -23,3 +23,20 @@ select,
 textarea {
   font-size: 16px;
 }
+
+@layer utilities {
+  .animate-fadein {
+    animation: fadein 0.22s ease-out both;
+  }
+}
+
+@keyframes fadein {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

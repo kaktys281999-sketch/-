@@ -10,6 +10,14 @@ import {
 } from "@/lib/store";
 import { formatMoney, formatDateLong, monthLabel } from "@/lib/format";
 import { Card, Money, ProgressBar } from "./ui";
+import { SpendingBreakdown } from "./SpendingBreakdown";
+
+// Фирменные цвета банков для точек у счетов
+const ACCOUNT_COLORS: Record<string, string> = {
+  yandex: "#FC3F1D",
+  sber: "#21A038",
+  tinkoff: "#FFDD2D",
+};
 
 export function Summary({ month }: { month: string }) {
   const { state } = useStore();
@@ -60,10 +68,16 @@ export function Summary({ month }: { month: string }) {
           <span className="text-sm text-slate-500">На руках</span>
           <span className="text-xl font-bold">{formatMoney(onHand)}</span>
         </div>
-        <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-3">
+        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
           {state.accounts.map((a) => (
-            <div key={a.id} className="flex justify-between text-sm">
-              <span className="text-slate-600">{a.name}</span>
+            <div key={a.id} className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-2 text-slate-600">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/5"
+                  style={{ backgroundColor: ACCOUNT_COLORS[a.id] ?? "#94a3b8" }}
+                />
+                {a.name}
+              </span>
               <Money value={currentBalance(state, a.id)} />
             </div>
           ))}
@@ -96,6 +110,9 @@ export function Summary({ month }: { month: string }) {
           </div>
         </div>
       </Card>
+
+      {/* Расходы по категориям */}
+      <SpendingBreakdown state={state} month={month} />
 
       {/* Цель */}
       <Card>

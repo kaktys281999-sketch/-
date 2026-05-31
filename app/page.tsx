@@ -62,10 +62,14 @@ export default function Home() {
           <MonthSwitcher value={month} onChange={setMonth} />
         )}
 
-        {tab === "summary" && <Summary month={month} />}
-        {tab === "add" && <AddOperation onAdded={() => setTab("operations")} />}
-        {tab === "operations" && <Operations month={month} />}
-        {tab === "settings" && <Settings />}
+        <div key={tab} className="animate-fadein space-y-3">
+          {tab === "summary" && <Summary month={month} />}
+          {tab === "add" && (
+            <AddOperation onAdded={() => setTab("operations")} />
+          )}
+          {tab === "operations" && <Operations month={month} />}
+          {tab === "settings" && <Settings />}
+        </div>
       </div>
 
       {/* Нижняя навигация */}
