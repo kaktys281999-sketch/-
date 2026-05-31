@@ -55,6 +55,27 @@ export function monthLabel(key: string): string {
   return `${MONTHS[m - 1]} ${y}`;
 }
 
+const MONTHS_SHORT = [
+  "янв",
+  "фев",
+  "мар",
+  "апр",
+  "май",
+  "июн",
+  "июл",
+  "авг",
+  "сен",
+  "окт",
+  "ноя",
+  "дек",
+];
+
+// «май» по ключу месяца (краткая подпись)
+export function monthShortLabel(key: string): string {
+  const m = Number(key.split("-")[1]);
+  return MONTHS_SHORT[m - 1];
+}
+
 // «26 мая 2026» по ISO-дате
 export function formatDateLong(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);

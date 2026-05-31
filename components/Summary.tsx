@@ -11,6 +11,7 @@ import {
 import { formatMoney, formatDateLong, monthLabel } from "@/lib/format";
 import { Card, Money, ProgressBar } from "./ui";
 import { SpendingBreakdown } from "./SpendingBreakdown";
+import { MonthlyTrend } from "./MonthlyTrend";
 
 // Фирменные цвета банков для точек у счетов
 const ACCOUNT_COLORS: Record<string, string> = {
@@ -19,7 +20,13 @@ const ACCOUNT_COLORS: Record<string, string> = {
   tinkoff: "#FFDD2D",
 };
 
-export function Summary({ month }: { month: string }) {
+export function Summary({
+  month,
+  onSelectMonth,
+}: {
+  month: string;
+  onSelectMonth?: (key: string) => void;
+}) {
   const { state } = useStore();
   const onHand = totalOnHand(state);
   const summary = monthSummary(state, month);
@@ -110,6 +117,9 @@ export function Summary({ month }: { month: string }) {
           </div>
         </div>
       </Card>
+
+      {/* Динамика по месяцам */}
+      <MonthlyTrend state={state} month={month} onSelectMonth={onSelectMonth} />
 
       {/* Расходы по категориям */}
       <SpendingBreakdown state={state} month={month} />

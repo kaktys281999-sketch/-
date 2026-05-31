@@ -63,7 +63,9 @@ export default function Home() {
         )}
 
         <div key={tab} className="animate-fadein space-y-3">
-          {tab === "summary" && <Summary month={month} />}
+          {tab === "summary" && (
+            <Summary month={month} onSelectMonth={setMonth} />
+          )}
           {tab === "add" && (
             <AddOperation onAdded={() => setTab("operations")} />
           )}
