@@ -6,6 +6,20 @@ import { TYPES, getTypeDef } from "@/lib/categories";
 import { useStore } from "@/lib/store";
 import { todayISO } from "@/lib/format";
 
+// Цвета банков для точек у чипов счетов
+const ACCOUNT_COLORS: Record<string, string> = {
+  yandex: "#FC3F1D",
+  sber: "#21A038",
+  tinkoff: "#FFDD2D",
+};
+
+const chipCls = (active: boolean) =>
+  `rounded-full px-3.5 py-2 text-sm font-medium transition ${
+    active
+      ? "bg-brand text-white"
+      : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+  }`;
+
 export interface OperationDraft {
   date: string;
   type: OpType;
@@ -87,15 +101,28 @@ export function OperationForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className={labelCls}>Дата</label>
-        <input
-          type="date"
-          value={draft.date}
-          onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
-          className={fieldCls}
-          required
-        />
+      {/* Крупный ввод суммы */}
+      <div className="rounded-2xl bg-slate-100 px-4 py-4 dark:bg-slate-800">
+        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+          Сумма
+        </label>
+        <div className="flex items-baseline gap-1.5">
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="1"
+            value={draft.amount}
+            onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))}
+            placeholder="0"
+            autoFocus={!initial}
+            className="min-w-0 flex-1 bg-transparent text-right text-4xl font-extrabold tabular-nums outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
+            required
+          />
+          <span className="text-2xl font-bold text-slate-400 dark:text-slate-500">
+            ₽
+          </span>
+        </div>
       </div>
 
       <div>
@@ -120,51 +147,53 @@ export function OperationForm({
 
       <div>
         <label className={labelCls}>Категория</label>
-        <select
-          value={draft.category}
-          onChange={(e) =>
-            setDraft((d) => ({ ...d, category: e.target.value }))
-          }
-          className={fieldCls}
-        >
+        <div className="flex flex-wrap gap-2">
           {typeDef.categories.map((c) => (
-            <option key={c.name} value={c.name}>
+            <button
+              type="button"
+              key={c.name}
+              onClick={() => setDraft((d) => ({ ...d, category: c.name }))}
+              className={chipCls(draft.category === c.name)}
+            >
               {c.name}
-            </option>
+            </button>
           ))}
-        </select>
-      </div>
-
-      <div>
-        <label className={labelCls}>Сумма, ₽</label>
-        <input
-          type="number"
-          inputMode="decimal"
-          min="0"
-          step="1"
-          value={draft.amount}
-          onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))}
-          placeholder="0"
-          className={`${fieldCls} text-lg`}
-          required
-        />
+        </div>
       </div>
 
       <div>
         <label className={labelCls}>Счёт</label>
-        <select
-          value={draft.accountId}
-          onChange={(e) =>
-            setDraft((d) => ({ ...d, accountId: e.target.value }))
-          }
-          className={fieldCls}
-        >
+        <div className="flex flex-wrap gap-2">
           {state.accounts.map((a) => (
-            <option key={a.id} value={a.id}>
+            <button
+              type="button"
+              key={a.id}
+              onClick={() => setDraft((d) => ({ ...d, accountId: a.id }))}
+              className={`flex items-center gap-2 ${chipCls(
+                draft.accountId === a.id
+              )}`}
+            >
+              <span
+                className="h-2.5 w-2.5 rounded-full ring-1 ring-black/5"
+                style={{ backgroundColor: ACCOUNT_COLORS[a.id] ?? "#94a3b8" }}
+              />
               {a.name}
-            </option>
+            </button>
           ))}
-        </select>
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <label className={labelCls}>Дата</label>
+          <input
+            type="date"
+            value={draft.date}
+            onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
+            className={fieldCls}
+            required
+          />
+        </div>
       </div>
 
       <div>
