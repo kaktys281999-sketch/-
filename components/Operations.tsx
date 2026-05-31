@@ -2,8 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useStore, operationDelta } from "@/lib/store";
-import { Operation } from "@/lib/types";
-import { TYPES } from "@/lib/categories";
+import { Operation, OpType } from "@/lib/types";
 import {
   formatMoney,
   formatDateLong,
@@ -13,20 +12,44 @@ import {
 import { Card, Money } from "./ui";
 import { OperationForm } from "./OperationForm";
 
-// Все категории для фильтра
-const ALL_CATEGORIES = TYPES.flatMap((t) => t.categories.map((c) => c.name));
+// Цвет-метка по типу операции
+const TYPE_COLOR: Record<OpType, string> = {
+  income: "#10b981",
+  expense_personal: "#f43f5e",
+  expense_work: "#f59e0b",
+  credit_loan: "#6926E3",
+};
 
 export function Operations({ month }: { month: string }) {
   const { state, updateOperation, deleteOperation } = useStore();
   const [filter, setFilter] = useState<string>("");
   const [editing, setEditing] = useState<Operation | null>(null);
 
+  // Операции месяца (без учёта фильтра) — для расчёта доступных категорий
+  const monthAll = useMemo(
+    () =>
+      state.operations.filter((o) => monthKeyFromISO(o.date) === month),
+    [state.operations, month]
+  );
+
+  // Категории, которые реально встречаются в этом месяце (для чипов)
+  const presentCategories = useMemo(() => {
+    const seen = new Set<string>();
+    const order: string[] = [];
+    for (const o of monthAll) {
+      if (!seen.has(o.category)) {
+        seen.add(o.category);
+        order.push(o.category);
+      }
+    }
+    return order;
+  }, [monthAll]);
+
   const monthOps = useMemo(() => {
-    return state.operations
-      .filter((o) => monthKeyFromISO(o.date) === month)
+    return monthAll
       .filter((o) => (filter ? o.category === filter : true))
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [state.operations, month, filter]);
+  }, [monthAll, filter]);
 
   // Группировка по дням
   const byDay = useMemo(() => {
@@ -84,19 +107,19 @@ export function Operations({ month }: { month: string }) {
     <div className="space-y-3">
       <h1 className="px-1 text-lg font-bold">Операции · {monthLabel(month)}</h1>
 
-      {/* Фильтр по категории */}
-      <select
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-      >
-        <option value="">Все категории</option>
-        {ALL_CATEGORIES.map((c) => (
-          <option key={c} value={c}>
-            {c}
-          </option>
-        ))}
-      </select>
+      {/* Чипы-фильтры по категориям месяца */}
+      {presentCategories.length > 0 && (
+        <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <Chip active={filter === ""} onClick={() => setFilter("")}>
+            Все
+          </Chip>
+          {presentCategories.map((c) => (
+            <Chip key={c} active={filter === c} onClick={() => setFilter(c)}>
+              {c}
+            </Chip>
+          ))}
+        </div>
+      )}
 
       {byDay.length === 0 && (
         <Card>
@@ -126,8 +149,12 @@ export function Operations({ month }: { month: string }) {
                   key={op.id}
                   type="button"
                   onClick={() => setEditing(op)}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left active:bg-slate-50 dark:active:bg-slate-800/60"
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-slate-50 dark:active:bg-slate-800/60"
                 >
+                  <span
+                    className="h-8 w-1 shrink-0 rounded-full"
+                    style={{ backgroundColor: TYPE_COLOR[op.type] }}
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">
                       {op.category}
@@ -140,7 +167,8 @@ export function Operations({ month }: { month: string }) {
                   <Money
                     value={operationDelta(op)}
                     showPlus
-                    className="ml-3 shrink-0 font-semibold"
+                    colorPositive
+                    className="shrink-0 font-semibold"
                   />
                 </button>
               ))}
@@ -149,5 +177,29 @@ export function Operations({ month }: { month: string }) {
         );
       })}
     </div>
+  );
+}
+
+function Chip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
+        active
+          ? "bg-brand text-white"
+          : "bg-white text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

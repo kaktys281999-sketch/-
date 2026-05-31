@@ -68,30 +68,29 @@ export function Card({
   );
 }
 
-// Денежная сумма: отрицательные — красным
+// Денежная сумма: отрицательные — красным, опц. положительные — зелёным
 export function Money({
   value,
   className = "",
   colorNegative = true,
+  colorPositive = false,
   showPlus = false,
 }: {
   value: number;
   className?: string;
   colorNegative?: boolean;
+  colorPositive?: boolean;
   showPlus?: boolean;
 }) {
   const negative = value < 0;
+  const positive = value > 0;
   const text =
     showPlus && value > 0 ? `+${formatMoney(value)}` : formatMoney(value);
-  return (
-    <span
-      className={`${
-        colorNegative && negative ? "text-red-600 dark:text-red-400" : ""
-      } ${className}`}
-    >
-      {text}
-    </span>
-  );
+  let color = "";
+  if (colorNegative && negative) color = "text-red-600 dark:text-red-400";
+  else if (colorPositive && positive)
+    color = "text-emerald-600 dark:text-emerald-400";
+  return <span className={`${color} ${className}`}>{text}</span>;
 }
 
 export function ProgressBar({ percent }: { percent: number }) {
