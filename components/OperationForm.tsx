@@ -66,6 +66,10 @@ function formatAmountInput(raw: string): string {
 // Быстрые добавки к сумме
 const QUICK_AMOUNTS = [100, 500, 1000];
 
+// Типы для формы: «Кредиты и займы» ведутся в отдельных вкладках «Долги»/«Кредиты»,
+// поэтому из обычной формы их скрываем (категории остаются для старых записей).
+const FORM_TYPES = TYPES.filter((t) => t.type !== "credit_loan");
+
 export function OperationForm({
   initial,
   prefill,
@@ -95,7 +99,8 @@ export function OperationForm({
   // иначе — дефолт «Расход / Продукты». Счёт берём из памяти, если он есть.
   const makeFresh = (): OperationDraft => {
     const last = getLastUsed();
-    if (!last) return emptyDraft(defaultAccount);
+    // скрытый из формы тип (кредиты/займы) не подставляем
+    if (!last || last.type === "credit_loan") return emptyDraft(defaultAccount);
     const def = getTypeDef(last.type);
     const category = def.categories.some((c) => c.name === last.category)
       ? last.category
@@ -259,7 +264,7 @@ export function OperationForm({
       <div>
         <label className={labelCls}>Тип</label>
         <div className="grid grid-cols-2 gap-2">
-          {TYPES.map((t) => (
+          {FORM_TYPES.map((t) => (
             <button
               type="button"
               key={t.type}
