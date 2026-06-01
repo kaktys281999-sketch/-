@@ -12,6 +12,7 @@ import {
   debtOutstanding,
   isDebtSettled,
   upcomingThisMonth,
+  accountMonthFlow,
 } from "@/lib/store";
 import {
   formatMoney,
@@ -99,6 +100,11 @@ export function Summary({
     ? upcomingThisMonth(state, month, todayISO())
     : [];
   const upcomingNet = upcoming.reduce((s, u) => s + u.sign * u.amount, 0);
+
+  // Обороты по счетам за выбранный месяц (только со движением)
+  const accountFlows = state.accounts
+    .map((a) => ({ a, f: accountMonthFlow(state, a.id, month) }))
+    .filter((x) => x.f.income > 0 || x.f.expense > 0);
   const goal = state.goal;
   const goalRemaining = goal.target - goal.saved;
   const goalPercent = goal.target > 0 ? (goal.saved / goal.target) * 100 : 0;
@@ -260,6 +266,43 @@ export function Summary({
           </div>
         </Card>
       </div>
+
+      {/* Обороты по счетам за месяц */}
+      {accountFlows.length > 0 && (
+        <div>
+          <SectionTitle>Обороты по счетам</SectionTitle>
+          <Card className="!p-0">
+            {accountFlows.map(({ a, f }, i) => (
+              <div
+                key={a.id}
+                className={`flex items-center justify-between gap-3 px-4 py-3 text-[15px] ${
+                  i > 0 ? "border-t border-[var(--separator)]" : ""
+                }`}
+              >
+                <span className="flex items-center gap-2.5 text-label-2">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: ACCOUNT_COLORS[a.id] ?? "#94a3b8" }}
+                  />
+                  {a.name}
+                </span>
+                <span className="flex shrink-0 items-center gap-3 tabular-nums">
+                  {f.income > 0 && (
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      +{formatMoney(f.income)}
+                    </span>
+                  )}
+                  {f.expense > 0 && (
+                    <span className="text-red-600 dark:text-red-400">
+                      −{formatMoney(f.expense)}
+                    </span>
+                  )}
+                </span>
+              </div>
+            ))}
+          </Card>
+        </div>
+      )}
 
       {/* Предстоящие в этом месяце */}
       {upcoming.length > 0 && (

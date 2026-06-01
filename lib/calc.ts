@@ -198,6 +198,30 @@ export function monthSummary(state: AppState, mKey: string): MonthSummary {
   return { income, expense, diff: income - expense };
 }
 
+export interface AccountFlow {
+  income: number; // пришло на счёт за месяц
+  expense: number; // ушло со счёта за месяц
+  net: number;
+}
+
+// Обороты по счёту за месяц (по операциям)
+export function accountMonthFlow(
+  state: AppState,
+  accountId: string,
+  mKey: string
+): AccountFlow {
+  let income = 0;
+  let expense = 0;
+  for (const o of state.operations) {
+    if (o.deleted || o.accountId !== accountId) continue;
+    if (monthKeyFromISO(o.date) !== mKey) continue;
+    const d = operationDelta(o);
+    if (d >= 0) income += d;
+    else expense += -d;
+  }
+  return { income, expense, net: income - expense };
+}
+
 export interface CreditInfo {
   totalDue: number; // всего к выплате
   overpay: number; // переплата
