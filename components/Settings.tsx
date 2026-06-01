@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useStore, currentBalance, creditInfo } from "@/lib/store";
 import { formatMoney, formatDateLong } from "@/lib/format";
-import { Theme, getTheme, setTheme } from "@/lib/theme";
+import { Theme, getTheme, setTheme, DEFAULT_THEME } from "@/lib/theme";
 import { Card, NumberInput } from "./ui";
 
 export function Settings() {
@@ -194,7 +194,7 @@ const THEME_OPTIONS: { id: Theme; label: string }[] = [
 ];
 
 function ThemeCard() {
-  const [theme, setThemeState] = useState<Theme>("system");
+  const [theme, setThemeState] = useState<Theme>(DEFAULT_THEME);
 
   useEffect(() => {
     setThemeState(getTheme());
