@@ -98,21 +98,23 @@ export function Debts() {
         </Card>
       )}
 
-      <DebtGroup
-        title="Мне должны"
-        list={groups.owedToMe}
-        onOpen={setOpenId}
-      />
-      <DebtGroup title="Я должен" list={groups.iOwe} onOpen={setOpenId} />
-
-      {groups.settled.length > 0 && (
+      <div className="md:columns-2 md:gap-4">
         <DebtGroup
-          title="Погашенные"
-          list={groups.settled}
+          title="Мне должны"
+          list={groups.owedToMe}
           onOpen={setOpenId}
-          muted
         />
-      )}
+        <DebtGroup title="Я должен" list={groups.iOwe} onOpen={setOpenId} />
+
+        {groups.settled.length > 0 && (
+          <DebtGroup
+            title="Погашенные"
+            list={groups.settled}
+            onOpen={setOpenId}
+            muted
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -134,7 +136,7 @@ function DebtGroup({
     state.accounts.find((a) => a.id === id)?.name ?? "—";
 
   return (
-    <div>
+    <div className="mb-4 break-inside-avoid">
       <div className="mb-1.5 px-1 text-[13px] font-medium uppercase tracking-wide text-label-2">
         {title}
       </div>

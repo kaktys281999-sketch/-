@@ -5,11 +5,18 @@ import {
   totalOnHand,
   monthSummary,
   creditInfo,
+  creditViews,
   realPosition,
   currentBalance,
   debtsSummary,
 } from "@/lib/store";
-import { formatMoney, formatDateLong, monthLabel } from "@/lib/format";
+import {
+  formatMoney,
+  formatDateLong,
+  monthLabel,
+  daysUntil,
+  relativeDayLabel,
+} from "@/lib/format";
 import { Card, Money, ProgressBar } from "./ui";
 import { SpendingBreakdown } from "./SpendingBreakdown";
 import { MonthlyTrend } from "./MonthlyTrend";
@@ -39,6 +46,12 @@ export function Summary({
   const position = realPosition(state);
   const debts = debtsSummary(state);
   const hasDebts = debts.owedToMe > 0 || debts.iOwe > 0;
+  // Напоминания о платежах по кредитам в ближайшие 7 дней (или просроченных)
+  const creditReminders = creditViews(state)
+    .filter((v) => v.nextPaymentDate)
+    .map((v) => ({ v, days: daysUntil(v.nextPaymentDate as string) }))
+    .filter((r) => r.days <= 7)
+    .sort((a, b) => a.days - b.days);
   const goal = state.goal;
   const goalRemaining = goal.target - goal.saved;
   const goalPercent = goal.target > 0 ? (goal.saved / goal.target) * 100 : 0;
@@ -75,6 +88,55 @@ export function Summary({
           С учётом кредита и долгов
         </div>
       </div>
+
+      {/* Напоминания о платежах по кредитам */}
+      {creditReminders.length > 0 && (
+        <div className="space-y-2 md:col-span-2">
+          {creditReminders.map(({ v, days }) => {
+            const urgent = days <= 0;
+            return (
+              <button
+                key={v.credit.id}
+                type="button"
+                onClick={onOpenCredits}
+                className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left ${
+                  urgent
+                    ? "bg-red-50 dark:bg-red-950/40"
+                    : "bg-amber-50 dark:bg-amber-950/30"
+                }`}
+              >
+                <span
+                  className={`text-[20px] ${
+                    urgent
+                      ? "text-red-500"
+                      : "text-amber-500 dark:text-amber-400"
+                  }`}
+                >
+                  {urgent ? "⚠️" : "🔔"}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[15px] font-semibold">
+                    Платёж по «{v.credit.name}»
+                  </div>
+                  <div
+                    className={`text-[13px] ${
+                      urgent
+                        ? "text-red-600 dark:text-red-300"
+                        : "text-amber-700 dark:text-amber-300"
+                    }`}
+                  >
+                    {relativeDayLabel(v.nextPaymentDate as string)} ·{" "}
+                    {formatDateLong(v.nextPaymentDate as string)}
+                  </div>
+                </div>
+                <span className="shrink-0 text-[15px] font-semibold">
+                  {formatMoney(v.nextPaymentAmount)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* На руках + счета */}
       <Card className="!p-0">

@@ -134,12 +134,12 @@ export default function Home() {
             </div>
           )}
           {tab === "operations" && (
-            <div className="md:mx-auto md:max-w-2xl">
+            <div className="md:mx-auto md:max-w-4xl">
               <Operations month={month} />
             </div>
           )}
           {tab === "debts" && (
-            <div className="md:mx-auto md:max-w-2xl">
+            <div className="md:mx-auto md:max-w-4xl">
               <Debts />
             </div>
           )}

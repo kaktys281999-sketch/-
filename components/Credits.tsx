@@ -3,7 +3,14 @@
 import { useMemo, useState } from "react";
 import { useStore, creditInfo, creditView } from "@/lib/store";
 import { Credit } from "@/lib/types";
-import { formatMoney, formatDateShort, formatDateLong, todayISO } from "@/lib/format";
+import {
+  formatMoney,
+  formatDateShort,
+  formatDateLong,
+  todayISO,
+  daysUntil,
+  relativeDayLabel,
+} from "@/lib/format";
 import { Card, Money, ProgressBar, NumberInput } from "./ui";
 
 export function Credits() {
@@ -153,9 +160,27 @@ function CreditCard({
             )}
           </span>
         </div>
-        <div className="mt-1 text-[13px] text-label-2">
-          платёж {formatMoney(c.payment)} · {paidCount} из {c.count}
-          {nextPaymentDate ? ` · ${formatDateShort(nextPaymentDate)}` : ""}
+        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-label-2">
+          <span>
+            платёж {formatMoney(c.payment)} · {paidCount} из {c.count}
+            {nextPaymentDate ? ` · ${formatDateShort(nextPaymentDate)}` : ""}
+          </span>
+          {nextPaymentDate &&
+            daysUntil(nextPaymentDate) <= 7 &&
+            (() => {
+              const urgent = daysUntil(nextPaymentDate) <= 0;
+              return (
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[12px] font-medium ${
+                    urgent
+                      ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+                  }`}
+                >
+                  {relativeDayLabel(nextPaymentDate)}
+                </span>
+              );
+            })()}
         </div>
         <div className="mt-2">
           <ProgressBar percent={percent} />

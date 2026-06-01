@@ -88,6 +88,33 @@ export function formatDateShort(iso: string): string {
   return `${d} ${MONTHS_GENITIVE[m - 1]}`;
 }
 
+// Сколько дней от сегодня до даты (отрицательное — дата в прошлом)
+export function daysUntil(iso: string): number {
+  const [y, m, d] = iso.split("-").map(Number);
+  const target = new Date(y, m - 1, d);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((target.getTime() - today.getTime()) / 86400000);
+}
+
+function pluralDays(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  let word = "дней";
+  if (mod10 === 1 && mod100 !== 11) word = "день";
+  else if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) word = "дня";
+  return `${n} ${word}`;
+}
+
+// «сегодня» / «завтра» / «через 5 дней» / «просрочен на 3 дня»
+export function relativeDayLabel(iso: string): string {
+  const d = daysUntil(iso);
+  if (d < 0) return `просрочен на ${pluralDays(-d)}`;
+  if (d === 0) return "сегодня";
+  if (d === 1) return "завтра";
+  return `через ${pluralDays(d)}`;
+}
+
 export function todayISO(): string {
   const now = new Date();
   const y = now.getFullYear();

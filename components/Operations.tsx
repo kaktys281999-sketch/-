@@ -145,10 +145,11 @@ export function Operations({ month }: { month: string }) {
         </Card>
       )}
 
+      <div className="md:columns-2 md:gap-4">
       {byDay.map(([date, ops]) => {
         const expense = dayExpense(ops);
         return (
-          <div key={date}>
+          <div key={date} className="mb-3 break-inside-avoid md:mb-4">
             <div className="mb-1.5 flex items-center justify-between px-1">
               <span className="text-[13px] font-medium uppercase tracking-wide text-label-2">
                 {formatDateLong(date)}
@@ -199,6 +200,7 @@ export function Operations({ month }: { month: string }) {
           </div>
         );
       })}
+      </div>
 
       {undoId && (
         <UndoToast
