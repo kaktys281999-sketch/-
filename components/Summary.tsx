@@ -37,23 +37,23 @@ export function Summary({
   const goalPercent = goal.target > 0 ? (goal.saved / goal.target) * 100 : 0;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {/* Реальная позиция — крупно */}
       <div
-        className={`rounded-2xl p-5 ${
+        className={`overflow-hidden rounded-2xl p-5 ${
           position < 0
-            ? "border border-red-100 bg-red-50 dark:border-red-900/50 dark:bg-red-950/40"
-            : "bg-brand text-white"
+            ? "bg-red-50 dark:bg-red-950/40"
+            : "bg-gradient-to-br from-brand to-[#5417C2] text-white"
         }`}
       >
         <div
-          className={`text-sm font-medium ${
+          className={`text-[13px] font-medium ${
             position < 0 ? "text-red-700 dark:text-red-300" : "text-white/70"
           }`}
         >
           Реальная позиция
         </div>
-        <div className="mt-1.5 text-4xl font-extrabold tracking-tight">
+        <div className="mt-1 text-[40px] font-bold leading-none tracking-tight">
           <Money
             value={position}
             colorNegative={position < 0}
@@ -61,7 +61,7 @@ export function Summary({
           />
         </div>
         <div
-          className={`mt-1.5 text-xs ${
+          className={`mt-2 text-[13px] ${
             position < 0 ? "text-red-500 dark:text-red-400" : "text-white/55"
           }`}
         >
@@ -70,53 +70,54 @@ export function Summary({
       </div>
 
       {/* На руках + счета */}
-      <Card>
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-slate-500 dark:text-slate-400">На руках</span>
-          <span className="text-xl font-bold">{formatMoney(onHand)}</span>
+      <Card className="!p-0">
+        <div className="flex items-center justify-between px-4 py-3">
+          <span className="text-[15px] font-medium">На руках</span>
+          <span className="text-[17px] font-semibold">{formatMoney(onHand)}</span>
         </div>
-        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3 dark:border-slate-800">
-          {state.accounts.map((a) => (
-            <div key={a.id} className="flex items-center justify-between text-sm">
-              <span className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/5"
-                  style={{ backgroundColor: ACCOUNT_COLORS[a.id] ?? "#94a3b8" }}
-                />
-                {a.name}
-              </span>
-              <Money value={currentBalance(state, a.id)} />
-            </div>
-          ))}
-        </div>
+        {state.accounts.map((a) => (
+          <div
+            key={a.id}
+            className="flex items-center justify-between border-t border-[var(--separator)] px-4 py-3 text-[15px]"
+          >
+            <span className="flex items-center gap-2.5 text-label-2">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: ACCOUNT_COLORS[a.id] ?? "#94a3b8" }}
+              />
+              {a.name}
+            </span>
+            <Money value={currentBalance(state, a.id)} />
+          </div>
+        ))}
       </Card>
 
       {/* За месяц */}
-      <Card>
-        <div className="mb-2 text-sm font-medium text-slate-500 dark:text-slate-400">
-          {monthLabel(month)}
-        </div>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">Доход</div>
-            <div className="font-semibold text-emerald-600 dark:text-emerald-400">
-              {formatMoney(summary.income)}
+      <div>
+        <SectionTitle>{monthLabel(month)}</SectionTitle>
+        <Card>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div>
+              <div className="text-[13px] text-label-2">Доход</div>
+              <div className="mt-0.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                {formatMoney(summary.income)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[13px] text-label-2">Расход</div>
+              <div className="mt-0.5 font-semibold text-red-600 dark:text-red-400">
+                {formatMoney(summary.expense)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[13px] text-label-2">Разница</div>
+              <div className="mt-0.5 font-semibold">
+                <Money value={summary.diff} />
+              </div>
             </div>
           </div>
-          <div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">Расход</div>
-            <div className="font-semibold text-red-600 dark:text-red-400">
-              {formatMoney(summary.expense)}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">Разница</div>
-            <div className="font-semibold">
-              <Money value={summary.diff} />
-            </div>
-          </div>
-        </div>
-      </Card>
+        </Card>
+      </div>
 
       {/* Динамика по месяцам */}
       <MonthlyTrend state={state} month={month} onSelectMonth={onSelectMonth} />
@@ -125,47 +126,55 @@ export function Summary({
       <SpendingBreakdown state={state} month={month} />
 
       {/* Цель */}
-      <Card>
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Цель: {goal.name}</span>
-          <span className="text-sm text-slate-500 dark:text-slate-400">
-            {Math.round(goalPercent)}%
-          </span>
-        </div>
-        <div className="mt-2">
-          <ProgressBar percent={goalPercent} />
-        </div>
-        <div className="mt-2 flex justify-between text-sm">
-          <span className="text-slate-600 dark:text-slate-300">
-            Накоплено {formatMoney(goal.saved)}
-          </span>
-          <span className="text-slate-600 dark:text-slate-300">
-            Осталось {formatMoney(goalRemaining)}
-          </span>
-        </div>
-        <div className="mt-1 text-right text-xs text-slate-400 dark:text-slate-500">
-          Цель {formatMoney(goal.target)}
-        </div>
-      </Card>
+      <div>
+        <SectionTitle>Цель · {goal.name}</SectionTitle>
+        <Card>
+          <div className="flex items-center justify-between">
+            <span className="text-[15px] font-medium">
+              {formatMoney(goal.saved)}{" "}
+              <span className="text-label-2">из {formatMoney(goal.target)}</span>
+            </span>
+            <span className="text-[15px] font-semibold text-brand">
+              {Math.round(goalPercent)}%
+            </span>
+          </div>
+          <div className="mt-2.5">
+            <ProgressBar percent={goalPercent} />
+          </div>
+          <div className="mt-2 text-[13px] text-label-2">
+            Осталось накопить {formatMoney(goalRemaining)}
+          </div>
+        </Card>
+      </div>
 
       {/* Кредит */}
-      <Card>
-        <div className="mb-2 text-sm font-medium">Кредит</div>
-        <div className="flex justify-between text-sm">
-          <span className="text-slate-600 dark:text-slate-300">Ближайший платёж</span>
-          <span className="font-medium">
-            {credit.nextPaymentDate
-              ? `${formatDateLong(credit.nextPaymentDate)} · ${formatMoney(
-                  credit.nextPaymentAmount
-                )}`
-              : "—"}
-          </span>
-        </div>
-        <div className="mt-1 flex justify-between text-sm">
-          <span className="text-slate-600 dark:text-slate-300">Остаток долга</span>
-          <span className="font-medium">{formatMoney(credit.remaining)}</span>
-        </div>
-      </Card>
+      <div>
+        <SectionTitle>Кредит</SectionTitle>
+        <Card className="!p-0">
+          <div className="flex items-center justify-between px-4 py-3 text-[15px]">
+            <span className="text-label-2">Ближайший платёж</span>
+            <span className="font-medium">
+              {credit.nextPaymentDate
+                ? `${formatDateLong(credit.nextPaymentDate)} · ${formatMoney(
+                    credit.nextPaymentAmount
+                  )}`
+                : "—"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between border-t border-[var(--separator)] px-4 py-3 text-[15px]">
+            <span className="text-label-2">Остаток долга</span>
+            <span className="font-medium">{formatMoney(credit.remaining)}</span>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-1.5 px-1 text-[13px] font-medium uppercase tracking-wide text-label-2">
+      {children}
     </div>
   );
 }

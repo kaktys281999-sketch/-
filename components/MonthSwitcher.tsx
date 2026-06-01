@@ -10,20 +10,22 @@ export function MonthSwitcher({
   onChange: (key: string) => void;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-slate-100 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">
+    <div className="flex items-center justify-between rounded-xl bg-black/5 p-1 dark:bg-white/10">
       <button
         type="button"
         onClick={() => onChange(shiftMonth(value, -1))}
-        className="flex h-10 w-10 items-center justify-center rounded-xl text-2xl text-slate-600 active:bg-slate-100 dark:text-slate-300 dark:active:bg-slate-800"
+        className="flex h-9 w-12 items-center justify-center rounded-lg text-xl text-brand active:bg-black/5 dark:active:bg-white/10"
         aria-label="Предыдущий месяц"
       >
         ‹
       </button>
-      <span className="text-base font-semibold">{monthLabel(value)}</span>
+      <span className="text-[15px] font-semibold tracking-tight">
+        {monthLabel(value)}
+      </span>
       <button
         type="button"
         onClick={() => onChange(shiftMonth(value, 1))}
-        className="flex h-10 w-10 items-center justify-center rounded-xl text-2xl text-slate-600 active:bg-slate-100 dark:text-slate-300 dark:active:bg-slate-800"
+        className="flex h-9 w-12 items-center justify-center rounded-lg text-xl text-brand active:bg-black/5 dark:active:bg-white/10"
         aria-label="Следующий месяц"
       >
         ›

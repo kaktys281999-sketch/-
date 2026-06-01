@@ -20,12 +20,12 @@ export function MonthlyTrend({
   const max = Math.max(1, ...data.map((d) => Math.max(d.income, d.expense)));
 
   return (
-    <Card>
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
+    <div>
+      <div className="mb-1.5 flex items-center justify-between px-1">
+        <span className="text-[13px] font-medium uppercase tracking-wide text-label-2">
           Динамика по месяцам
         </span>
-        <div className="flex items-center gap-3 text-xs text-slate-400 dark:text-slate-500">
+        <div className="flex items-center gap-3 text-[12px] text-label-2">
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
             Доход
@@ -36,7 +36,7 @@ export function MonthlyTrend({
           </span>
         </div>
       </div>
-
+      <Card>
       <div className="flex items-end justify-between gap-1.5">
         {data.map((d) => {
           const active = d.key === month;
@@ -64,7 +64,8 @@ export function MonthlyTrend({
           );
         })}
       </div>
-    </Card>
+      </Card>
+    </div>
   );
 }
 

@@ -17,7 +17,7 @@ const chipCls = (active: boolean) =>
   `rounded-full px-3.5 py-2 text-sm font-medium transition ${
     active
       ? "bg-brand text-white"
-      : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+      : "bg-black/[0.06] text-slate-700 dark:bg-white/10 dark:text-slate-200"
   }`;
 
 export interface OperationDraft {
@@ -95,34 +95,27 @@ export function OperationForm({
   }
 
   const labelCls =
-    "block text-sm font-medium text-slate-600 mb-1 dark:text-slate-300";
+    "block text-[13px] font-medium uppercase tracking-wide text-label-2 mb-2";
   const fieldCls =
-    "w-full rounded-xl border border-slate-200 bg-white px-3 py-3 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
+    "w-full rounded-xl bg-black/[0.04] px-3.5 py-3 outline-none focus:ring-2 focus:ring-brand/40 dark:bg-white/[0.06] dark:text-slate-100";
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {/* Крупный ввод суммы */}
-      <div className="rounded-2xl bg-slate-100 px-4 py-4 dark:bg-slate-800">
-        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
-          Сумма
-        </label>
-        <div className="flex items-baseline gap-1.5">
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="1"
-            value={draft.amount}
-            onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))}
-            placeholder="0"
-            autoFocus={!initial}
-            className="min-w-0 flex-1 bg-transparent text-right text-4xl font-extrabold tabular-nums outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
-            required
-          />
-          <span className="text-2xl font-bold text-slate-400 dark:text-slate-500">
-            ₽
-          </span>
-        </div>
+      <div className="flex items-center justify-center gap-1 py-2">
+        <input
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="1"
+          value={draft.amount}
+          onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))}
+          placeholder="0"
+          autoFocus={!initial}
+          className="w-auto max-w-[70%] bg-transparent text-center text-[52px] font-bold leading-none tracking-tight tabular-nums outline-none placeholder:text-label-3"
+          required
+        />
+        <span className="text-[40px] font-semibold text-label-3">₽</span>
       </div>
 
       <div>
@@ -133,10 +126,10 @@ export function OperationForm({
               type="button"
               key={t.type}
               onClick={() => handleTypeChange(t.type)}
-              className={`rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+              className={`rounded-xl px-3 py-2.5 text-[14px] font-medium ${
                 draft.type === t.type
                   ? "bg-brand text-white"
-                  : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                  : "bg-black/[0.06] text-slate-700 dark:bg-white/10 dark:text-slate-200"
               }`}
             >
               {t.label}
@@ -207,19 +200,19 @@ export function OperationForm({
         />
       </div>
 
-      <div className="flex gap-2 pt-1">
+      <div className="flex gap-2.5 pt-1">
         {onCancel && (
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 rounded-xl bg-slate-100 py-4 text-base font-semibold text-slate-700 active:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:active:bg-slate-700"
+            className="flex-1 rounded-2xl bg-black/[0.06] py-3.5 text-[17px] font-semibold text-slate-700 dark:bg-white/10 dark:text-slate-200"
           >
             Отмена
           </button>
         )}
         <button
           type="submit"
-          className="flex-[2] rounded-xl bg-brand py-4 text-base font-semibold text-white active:bg-brand-dark"
+          className="flex-[2] rounded-2xl bg-brand py-3.5 text-[17px] font-semibold text-white"
         >
           {submitLabel}
         </button>

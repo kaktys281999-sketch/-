@@ -43,28 +43,34 @@ export default function Home() {
   // Спокойный экран загрузки
   if (!month) {
     return (
-      <main className="flex min-h-screen items-center justify-center text-sm text-slate-400">
+      <main className="flex min-h-screen items-center justify-center text-[15px] text-label-3">
         Загрузка…
       </main>
     );
   }
 
+  const title = TABS.find((t) => t.id === tab)?.label ?? "Финансы";
+
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col">
-      {/* Лаконичная шапка */}
-      <header className="sticky top-0 z-10 flex items-center justify-between bg-slate-50/85 px-5 pb-2 pt-4 backdrop-blur dark:bg-slate-950/85">
-        <span className="text-base font-bold tracking-tight text-slate-900 dark:text-slate-100">
-          Финансы
-        </span>
-        <SyncBadge />
+      {/* iOS large title */}
+      <header className="sticky top-0 z-10 bg-[var(--bg)]/80 px-4 pb-1 pt-3 backdrop-blur-xl">
+        <div className="flex items-end justify-between">
+          <h1 className="text-[34px] font-bold leading-tight tracking-tight">
+            {title}
+          </h1>
+          <div className="pb-1.5">
+            <SyncBadge />
+          </div>
+        </div>
       </header>
 
-      <div className="flex-1 space-y-3 px-3 pb-28 pt-1">
+      <div className="flex-1 space-y-4 px-4 pb-28 pt-1">
         {showMonthSwitcher && (
           <MonthSwitcher value={month} onChange={setMonth} />
         )}
 
-        <div key={tab} className="animate-fadein space-y-3">
+        <div key={tab} className="animate-fadein space-y-4">
           {tab === "summary" && (
             <Summary month={month} onSelectMonth={setMonth} />
           )}
@@ -76,9 +82,9 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Нижняя навигация */}
-      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200/70 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
-        <div className="mx-auto flex max-w-md px-2 pb-[env(safe-area-inset-bottom)]">
+      {/* iOS tab bar */}
+      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-[var(--separator)] bg-[var(--card)]/80 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-md px-1 pb-[env(safe-area-inset-bottom)]">
           {TABS.map(({ id, label, Icon }) => {
             const active = tab === id;
             return (
@@ -86,12 +92,16 @@ export default function Home() {
                 key={id}
                 type="button"
                 onClick={() => setTab(id)}
-                className={`flex flex-1 flex-col items-center gap-1 py-2.5 transition-colors ${
-                  active ? "text-brand" : "text-slate-400"
+                className={`flex flex-1 flex-col items-center gap-0.5 py-2 transition-colors ${
+                  active
+                    ? "text-brand"
+                    : "text-slate-400 dark:text-slate-500"
                 }`}
               >
-                <Icon className="h-[22px] w-[22px]" />
-                <span className="text-[11px] font-semibold">{label}</span>
+                <Icon className="h-[26px] w-[26px]" />
+                <span className="text-[10px] font-medium tracking-tight">
+                  {label}
+                </span>
               </button>
             );
           })}

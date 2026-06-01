@@ -19,43 +19,43 @@ export function Settings() {
   const credit = creditInfo(state);
 
   const fieldCls =
-    "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100";
+    "w-full rounded-xl bg-black/[0.04] px-3.5 py-2.5 outline-none focus:ring-2 focus:ring-brand/40 dark:bg-white/[0.06] dark:text-slate-100";
 
   return (
-    <div className="space-y-3">
-      <h1 className="px-1 text-lg font-bold">Настройки</h1>
-
+    <div className="space-y-5">
       <ThemeCard />
 
       <SyncCard fieldCls={fieldCls} />
 
       {/* Балансы счетов */}
-      <Card>
-        <div className="mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">
-          Балансы счетов
-        </div>
-        <div className="space-y-3">
-          {state.accounts.map((a) => (
-            <div key={a.id} className="flex items-center justify-between gap-3">
-              <label className="text-sm">{a.name}</label>
+      <div>
+        <SettingsTitle>Балансы счетов</SettingsTitle>
+        <Card className="!p-0">
+          {state.accounts.map((a, i) => (
+            <div
+              key={a.id}
+              className={`flex items-center justify-between gap-3 px-4 py-2.5 ${
+                i > 0 ? "border-t border-[var(--separator)]" : ""
+              }`}
+            >
+              <label className="text-[15px]">{a.name}</label>
               <NumberInput
                 value={Math.round(currentBalance(state, a.id))}
                 onCommit={(n) => setAccountBalance(a.id, n)}
-                className={`${fieldCls} w-36 text-right`}
+                className={`${fieldCls} w-32 text-right`}
               />
             </div>
           ))}
-        </div>
-        <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+        </Card>
+        <p className="mt-1.5 px-1 text-[13px] text-label-2">
           Это остаток «на сейчас». Операции дальше меняют его автоматически.
         </p>
-      </Card>
+      </div>
 
       {/* Цель */}
-      <Card>
-        <div className="mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">
-          Цель накоплений
-        </div>
+      <div>
+        <SettingsTitle>Цель накоплений</SettingsTitle>
+        <Card>
         <div className="space-y-3">
           <div>
             <label className="mb-1 block text-sm text-slate-600 dark:text-slate-300">Название</label>
@@ -89,11 +89,13 @@ export function Settings() {
             </div>
           </div>
         </div>
-      </Card>
+        </Card>
+      </div>
 
       {/* Кредит */}
-      <Card>
-        <div className="mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">Кредит</div>
+      <div>
+        <SettingsTitle>Кредит</SettingsTitle>
+        <Card>
         <div className="space-y-3">
           <div className="flex gap-3">
             <div className="flex-1">
@@ -144,61 +146,59 @@ export function Settings() {
           </div>
         </div>
 
-        <div className="mt-3 space-y-1 border-t border-slate-100 pt-3 text-sm dark:border-slate-800">
+        <div className="mt-3 space-y-1 border-t border-[var(--separator)] pt-3 text-[15px]">
           <Row label="Всего к выплате" value={formatMoney(credit.totalDue)} />
           <Row label="Переплата" value={formatMoney(credit.overpay)} />
           <Row label="Выплачено" value={formatMoney(credit.paid)} />
           <Row label="Осталось выплатить" value={formatMoney(credit.remaining)} />
-          <div className="pt-1 text-xs text-slate-400 dark:text-slate-500">
+          <div className="pt-1 text-[13px] text-label-2">
             Платежи:{" "}
             {state.credit.paymentDates.map((d) => formatDateLong(d)).join(", ")}
           </div>
         </div>
-      </Card>
+        </Card>
+      </div>
 
       <BudgetsCard fieldCls={fieldCls} />
 
       {/* Экспорт */}
-      <Card>
-        <div className="mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">
-          Экспорт данных
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            const today = new Date().toISOString().slice(0, 10);
-            downloadFile(
-              `финансы-${today}.csv`,
-              operationsToCSV(state),
-              "text/csv;charset=utf-8"
-            );
-          }}
-          className="w-full rounded-xl bg-slate-100 py-3 text-sm font-semibold text-slate-700 active:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:active:bg-slate-700"
-        >
-          Скачать операции (CSV)
-        </button>
-        <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-          Файл открывается в Excel и Google Таблицах. Удобно как резервная копия.
+      <div>
+        <SettingsTitle>Данные</SettingsTitle>
+        <Card className="!p-0">
+          <button
+            type="button"
+            onClick={() => {
+              const today = new Date().toISOString().slice(0, 10);
+              downloadFile(
+                `финансы-${today}.csv`,
+                operationsToCSV(state),
+                "text/csv;charset=utf-8"
+              );
+            }}
+            className="w-full py-3.5 text-center text-[17px] font-medium text-brand"
+          >
+            Скачать операции (CSV)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (
+                confirm(
+                  "Сбросить все данные и вернуть стартовые значения? Операции будут удалены."
+                )
+              ) {
+                resetAll();
+              }
+            }}
+            className="w-full border-t border-[var(--separator)] py-3.5 text-center text-[17px] font-medium text-red-600 dark:text-red-400"
+          >
+            Сбросить все данные
+          </button>
+        </Card>
+        <p className="mt-1.5 px-1 text-[13px] text-label-2">
+          CSV открывается в Excel и Google Таблицах — удобно как резервная копия.
         </p>
-      </Card>
-
-      <Card>
-        <button
-          type="button"
-          onClick={() => {
-            if (
-              confirm(
-                "Сбросить все данные и вернуть стартовые значения? Операции будут удалены."
-              )
-            ) {
-              resetAll();
-            }
-          }}
-          className="w-full rounded-xl bg-red-50 py-3 text-sm font-semibold text-red-600 active:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:active:bg-red-950/60"
-        >
-          Сбросить все данные
-        </button>
-      </Card>
+      </div>
     </div>
   );
 }
@@ -215,28 +215,29 @@ function Row({ label, value }: { label: string; value: string }) {
 function BudgetsCard({ fieldCls }: { fieldCls: string }) {
   const { state, setBudget } = useStore();
   return (
-    <Card>
-      <div className="mb-1 text-sm font-medium text-slate-500 dark:text-slate-400">
-        Бюджеты по категориям
-      </div>
-      <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">
-        Месячный лимит расходов. 0 — без лимита. Прогресс виден на «Сводке».
-      </p>
-      <div className="space-y-2.5">
-        {EXPENSE_CATEGORIES.map((cat) => (
-          <div key={cat} className="flex items-center justify-between gap-3">
-            <label className="text-sm text-slate-600 dark:text-slate-300">
-              {cat}
-            </label>
+    <div>
+      <SettingsTitle>Бюджеты по категориям</SettingsTitle>
+      <Card className="!p-0">
+        {EXPENSE_CATEGORIES.map((cat, i) => (
+          <div
+            key={cat}
+            className={`flex items-center justify-between gap-3 px-4 py-2.5 ${
+              i > 0 ? "border-t border-[var(--separator)]" : ""
+            }`}
+          >
+            <label className="text-[15px] text-label-2">{cat}</label>
             <NumberInput
               value={state.budgets?.[cat] ?? 0}
               onCommit={(n) => setBudget(cat, n)}
-              className={`${fieldCls} w-28 text-right`}
+              className={`${fieldCls} w-24 text-right`}
             />
           </div>
         ))}
-      </div>
-    </Card>
+      </Card>
+      <p className="mt-1.5 px-1 text-[13px] text-label-2">
+        Месячный лимит расходов. 0 — без лимита. Прогресс виден на «Сводке».
+      </p>
+    </div>
   );
 }
 
@@ -267,27 +268,33 @@ function ThemeCard() {
   }
 
   return (
-    <Card>
-      <div className="mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">
-        Оформление
-      </div>
-      <div className="grid grid-cols-3 gap-2">
+    <div>
+      <SettingsTitle>Оформление</SettingsTitle>
+      <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/[0.06] p-1 dark:bg-white/10">
         {THEME_OPTIONS.map((o) => (
           <button
             key={o.id}
             type="button"
             onClick={() => choose(o.id)}
-            className={`rounded-xl py-2.5 text-sm font-medium transition ${
+            className={`rounded-lg py-2 text-[14px] font-medium ${
               theme === o.id
-                ? "bg-brand text-white"
-                : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                ? "bg-[var(--card)] text-slate-900 shadow-sm dark:text-white"
+                : "text-label-2"
             }`}
           >
             {o.label}
           </button>
         ))}
       </div>
-    </Card>
+    </div>
+  );
+}
+
+function SettingsTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-1.5 px-1 text-[13px] font-medium uppercase tracking-wide text-label-2">
+      {children}
+    </div>
   );
 }
 
@@ -296,71 +303,68 @@ function SyncCard({ fieldCls }: { fieldCls: string }) {
   const busy = syncState.status === "syncing";
 
   return (
-    <Card>
-      <div className="mb-1 text-sm font-medium text-slate-500 dark:text-slate-400">
-        Синхронизация с Google-таблицей
-      </div>
-      <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">
-        Данные хранятся в Google-таблице, и приложение работает одинаково на
-        телефоне и на компьютере. Инструкция по настройке — в README проекта.
-      </p>
+    <div>
+      <SettingsTitle>Синхронизация</SettingsTitle>
+      <Card>
+        <p className="mb-3 text-[13px] text-label-2">
+          Данные хранятся в Google-таблице — приложение работает одинаково на
+          телефоне и на компьютере.
+        </p>
 
-      <label className="mb-1 block text-sm text-slate-600 dark:text-slate-300">
-        Ссылка веб-приложения (Apps Script)
-      </label>
-      <input
-        type="url"
-        inputMode="url"
-        placeholder="https://script.google.com/macros/s/.../exec"
-        value={sync.url}
-        onChange={(e) => setSyncConfig({ url: e.target.value })}
-        className={`${fieldCls} text-xs`}
-      />
-
-      <label className="mt-3 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
         <input
-          type="checkbox"
-          checked={sync.auto}
-          onChange={(e) => setSyncConfig({ auto: e.target.checked })}
-          className="h-4 w-4 accent-brand"
+          type="url"
+          inputMode="url"
+          placeholder="https://script.google.com/macros/s/.../exec"
+          value={sync.url}
+          onChange={(e) => setSyncConfig({ url: e.target.value })}
+          className={`${fieldCls} text-[13px]`}
         />
-        Синхронизировать автоматически
-      </label>
 
-      <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          disabled={busy || !sync.url.trim()}
-          onClick={() => void pullNow()}
-          className="flex-1 rounded-xl bg-slate-100 py-3 text-sm font-semibold text-slate-700 active:bg-slate-200 disabled:opacity-40 dark:bg-slate-800 dark:text-slate-200 dark:active:bg-slate-700"
-        >
-          Загрузить из таблицы
-        </button>
-        <button
-          type="button"
-          disabled={busy || !sync.url.trim()}
-          onClick={() => void pushNow()}
-          className="flex-1 rounded-xl bg-brand py-3 text-sm font-semibold text-white active:bg-brand-dark disabled:opacity-40"
-        >
-          Сохранить в таблицу
-        </button>
-      </div>
+        <label className="mt-3 flex items-center justify-between text-[15px]">
+          <span>Синхронизировать автоматически</span>
+          <input
+            type="checkbox"
+            checked={sync.auto}
+            onChange={(e) => setSyncConfig({ auto: e.target.checked })}
+            className="h-5 w-5 accent-brand"
+          />
+        </label>
 
-      {syncState.message && (
-        <div
-          className={`mt-2 text-xs ${
-            STATUS_STYLE[syncState.status] ?? "text-slate-400"
-          }`}
-        >
-          {syncState.message}
-          {syncState.lastSync
-            ? ` · ${new Date(syncState.lastSync).toLocaleTimeString("ru-RU", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}`
-            : ""}
+        <div className="mt-4 flex gap-2.5">
+          <button
+            type="button"
+            disabled={busy || !sync.url.trim()}
+            onClick={() => void pullNow()}
+            className="flex-1 rounded-2xl bg-black/[0.06] py-3 text-[15px] font-semibold text-slate-700 disabled:opacity-40 dark:bg-white/10 dark:text-slate-200"
+          >
+            Загрузить
+          </button>
+          <button
+            type="button"
+            disabled={busy || !sync.url.trim()}
+            onClick={() => void pushNow()}
+            className="flex-1 rounded-2xl bg-brand py-3 text-[15px] font-semibold text-white disabled:opacity-40"
+          >
+            Сохранить
+          </button>
         </div>
-      )}
-    </Card>
+
+        {syncState.message && (
+          <div
+            className={`mt-2.5 text-[13px] ${
+              STATUS_STYLE[syncState.status] ?? "text-label-2"
+            }`}
+          >
+            {syncState.message}
+            {syncState.lastSync
+              ? ` · ${new Date(syncState.lastSync).toLocaleTimeString("ru-RU", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}`
+              : ""}
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }

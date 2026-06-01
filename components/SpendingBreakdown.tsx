@@ -30,18 +30,20 @@ export function SpendingBreakdown({
   const { rows, total } = expensesByCategory(state, month);
 
   return (
-    <Card>
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
+    <div>
+      <div className="mb-1.5 flex items-center justify-between px-1">
+        <span className="text-[13px] font-medium uppercase tracking-wide text-label-2">
           Расходы по категориям
         </span>
         {total > 0 && (
-          <span className="text-sm font-semibold">{formatMoney(total)}</span>
+          <span className="text-[13px] font-semibold text-label-2">
+            {formatMoney(total)}
+          </span>
         )}
       </div>
-
+      <Card>
       {rows.length === 0 ? (
-        <p className="py-3 text-center text-sm text-slate-400 dark:text-slate-500">
+        <p className="py-3 text-center text-sm text-label-3">
           Расходов в этом месяце пока нет
         </p>
       ) : (
@@ -105,6 +107,7 @@ export function SpendingBreakdown({
           })}
         </div>
       )}
-    </Card>
+      </Card>
+    </div>
   );
 }

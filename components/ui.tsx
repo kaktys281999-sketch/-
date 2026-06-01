@@ -60,10 +60,19 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div
-      className={`rounded-2xl border border-slate-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 ${className}`}
-    >
-      {children}
+    <div className={`ios-card p-4 ${className}`}>{children}</div>
+  );
+}
+
+// iOS-цвета акцентов (системный фиолетовый/зелёный/красный)
+export function ProgressBarThin({ percent }: { percent: number }) {
+  const clamped = Math.max(0, Math.min(100, percent));
+  return (
+    <div className="h-2 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
+      <div
+        className="h-full rounded-full bg-brand transition-all"
+        style={{ width: `${clamped}%` }}
+      />
     </div>
   );
 }
@@ -96,7 +105,7 @@ export function Money({
 export function ProgressBar({ percent }: { percent: number }) {
   const clamped = Math.max(0, Math.min(100, percent));
   return (
-    <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+    <div className="h-2.5 w-full overflow-hidden rounded-full bg-black/10 dark:bg-white/10">
       <div
         className="h-full rounded-full bg-brand transition-all"
         style={{ width: `${clamped}%` }}

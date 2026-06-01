@@ -93,7 +93,9 @@ export function Operations({ month }: { month: string }) {
   if (editing) {
     return (
       <div className="space-y-3">
-        <h1 className="px-1 text-lg font-bold">Редактировать операцию</h1>
+        <h2 className="px-1 text-xl font-bold tracking-tight">
+          Редактировать операцию
+        </h2>
         <Card>
           <OperationForm
             key={editing.id}
@@ -105,10 +107,12 @@ export function Operations({ month }: { month: string }) {
               setEditing(null);
             }}
           />
+        </Card>
+        <Card className="!p-0">
           <button
             type="button"
             onClick={() => handleDelete(editing.id)}
-            className="mt-3 w-full rounded-xl bg-red-50 py-3 text-sm font-semibold text-red-600 active:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:active:bg-red-950/60"
+            className="w-full py-3.5 text-center text-[17px] font-medium text-red-600 dark:text-red-400"
           >
             Удалить операцию
           </button>
@@ -119,11 +123,9 @@ export function Operations({ month }: { month: string }) {
 
   return (
     <div className="space-y-3">
-      <h1 className="px-1 text-lg font-bold">Операции · {monthLabel(month)}</h1>
-
       {/* Чипы-фильтры по категориям месяца */}
       {presentCategories.length > 0 && (
-        <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <Chip active={filter === ""} onClick={() => setFilter("")}>
             Все
           </Chip>
@@ -137,7 +139,7 @@ export function Operations({ month }: { month: string }) {
 
       {byDay.length === 0 && (
         <Card>
-          <p className="py-6 text-center text-sm text-slate-400 dark:text-slate-500">
+          <p className="py-8 text-center text-[15px] text-label-3">
             Операций за этот месяц нет
           </p>
         </Card>
@@ -147,33 +149,40 @@ export function Operations({ month }: { month: string }) {
         const expense = dayExpense(ops);
         return (
           <div key={date}>
-            <div className="mb-1 flex items-center justify-between px-1">
-              <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+            <div className="mb-1.5 flex items-center justify-between px-1">
+              <span className="text-[13px] font-medium uppercase tracking-wide text-label-2">
                 {formatDateLong(date)}
               </span>
               {expense > 0 && (
-                <span className="text-xs text-slate-400 dark:text-slate-500">
-                  расход {formatMoney(expense)}
+                <span className="text-[13px] text-label-3">
+                  −{formatMoney(expense)}
                 </span>
               )}
             </div>
-            <Card className="divide-y divide-slate-100 !p-0 dark:divide-slate-800">
-              {ops.map((op) => (
+            <Card className="!p-0">
+              {ops.map((op, idx) => (
                 <button
                   key={op.id}
                   type="button"
                   onClick={() => setEditing(op)}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-slate-50 dark:active:bg-slate-800/60"
+                  className={`flex w-full items-center gap-3 px-4 py-3 text-left active:bg-black/[0.03] dark:active:bg-white/5 ${
+                    idx > 0 ? "border-t border-[var(--separator)]" : ""
+                  }`}
                 >
                   <span
-                    className="h-8 w-1 shrink-0 rounded-full"
-                    style={{ backgroundColor: TYPE_COLOR[op.type] }}
-                  />
+                    className="h-9 w-9 shrink-0 rounded-full"
+                    style={{ backgroundColor: TYPE_COLOR[op.type] + "22" }}
+                  >
+                    <span
+                      className="mx-auto mt-[14px] block h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: TYPE_COLOR[op.type] }}
+                    />
+                  </span>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">
+                    <div className="truncate text-[15px] font-medium">
                       {op.category}
                     </div>
-                    <div className="truncate text-xs text-slate-400 dark:text-slate-500">
+                    <div className="truncate text-[13px] text-label-2">
                       {accountName(op.accountId)}
                       {op.note ? ` · ${op.note}` : ""}
                     </div>
@@ -182,7 +191,7 @@ export function Operations({ month }: { month: string }) {
                     value={operationDelta(op)}
                     showPlus
                     colorPositive
-                    className="shrink-0 font-semibold"
+                    className="shrink-0 text-[15px] font-semibold"
                   />
                 </button>
               ))}
@@ -218,10 +227,10 @@ function Chip({
     <button
       type="button"
       onClick={onClick}
-      className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
+      className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[14px] font-medium ${
         active
           ? "bg-brand text-white"
-          : "bg-white text-slate-600 ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700"
+          : "bg-black/[0.06] text-slate-600 dark:bg-white/10 dark:text-slate-300"
       }`}
     >
       {children}
