@@ -95,6 +95,7 @@ export interface Debt {
   person: string; // имя
   amount: number; // изначальная сумма, всегда положительная
   date: string; // дата возникновения (ISO)
+  dueDate?: string; // срок возврата (ISO), необязательно
   accountId: string; // счёт, с которого ушло / на который пришло
   note: string;
   payments: DebtPayment[]; // частичные возвраты

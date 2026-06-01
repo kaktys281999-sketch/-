@@ -9,7 +9,13 @@ import {
   isDebtSettled,
 } from "@/lib/store";
 import { Debt, DebtDirection } from "@/lib/types";
-import { formatMoney, formatDateShort, todayISO } from "@/lib/format";
+import {
+  formatMoney,
+  formatDateShort,
+  todayISO,
+  daysUntil,
+  relativeDayLabel,
+} from "@/lib/format";
 import { Card, Money, ProgressBar } from "./ui";
 
 const DIR_LABEL: Record<DebtDirection, string> = {
@@ -178,6 +184,28 @@ function DebtGroup({
                   </span>
                 )}
               </div>
+              {!settled && d.dueDate && (
+                <div className="mt-1.5">
+                  {(() => {
+                    const days = daysUntil(d.dueDate);
+                    const soon = days <= 7;
+                    const urgent = days <= 0;
+                    return (
+                      <span
+                        className={`inline-block rounded-full px-2 py-0.5 text-[12px] font-medium ${
+                          urgent
+                            ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"
+                            : soon
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+                            : "bg-black/[0.06] text-label-2 dark:bg-white/10"
+                        }`}
+                      >
+                        срок {relativeDayLabel(d.dueDate)}
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
               {!settled && (
                 <div className="mt-2">
                   <ProgressBar percent={percent} />
@@ -205,6 +233,7 @@ function DebtForm({ onClose }: { onClose: () => void }) {
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState(defaultAccount);
   const [date, setDate] = useState(todayISO());
+  const [dueDate, setDueDate] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
 
@@ -230,6 +259,7 @@ function DebtForm({ onClose }: { onClose: () => void }) {
       amount: sum,
       accountId,
       date,
+      dueDate: dueDate || undefined,
       note: note.trim(),
     });
     onClose();
@@ -316,15 +346,26 @@ function DebtForm({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <div>
-            <label className={labelCls}>Дата</label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className={fieldCls}
-              required
-            />
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className={labelCls}>Дата</label>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className={fieldCls}
+                required
+              />
+            </div>
+            <div className="flex-1">
+              <label className={labelCls}>Срок возврата</label>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className={fieldCls}
+              />
+            </div>
           </div>
 
           <div>
@@ -374,6 +415,7 @@ function DebtDetail({ debt, onClose }: { debt: Debt; onClose: () => void }) {
     deleteDebtPayment,
     settleDebt,
     deleteDebt,
+    updateDebt,
   } = useStore();
   const [payAmount, setPayAmount] = useState("");
   const [payAccount, setPayAccount] = useState(debt.accountId);
@@ -444,6 +486,28 @@ function DebtDetail({ debt, onClose }: { debt: Debt; onClose: () => void }) {
           <div className="mt-2 text-[13px] text-label-2">{debt.note}</div>
         )}
       </Card>
+
+      {/* Срок возврата */}
+      {!settled && (
+        <Card className="flex items-center justify-between gap-3">
+          <span className="text-[15px]">Срок возврата</span>
+          <span className="flex items-center gap-2">
+            {debt.dueDate && (
+              <span className="text-[13px] text-label-2">
+                {relativeDayLabel(debt.dueDate)}
+              </span>
+            )}
+            <input
+              type="date"
+              value={debt.dueDate ?? ""}
+              onChange={(e) =>
+                updateDebt(debt.id, { dueDate: e.target.value || undefined })
+              }
+              className="rounded-lg bg-black/[0.04] px-2.5 py-1.5 text-[14px] outline-none focus:ring-2 focus:ring-brand/40 dark:bg-white/[0.06] dark:text-slate-100"
+            />
+          </span>
+        </Card>
+      )}
 
       {/* Записать возврат */}
       {!settled && (

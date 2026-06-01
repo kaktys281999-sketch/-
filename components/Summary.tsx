@@ -9,6 +9,8 @@ import {
   realPosition,
   currentBalance,
   debtsSummary,
+  debtOutstanding,
+  isDebtSettled,
 } from "@/lib/store";
 import {
   formatMoney,
@@ -46,12 +48,46 @@ export function Summary({
   const position = realPosition(state);
   const debts = debtsSummary(state);
   const hasDebts = debts.owedToMe > 0 || debts.iOwe > 0;
-  // Напоминания о платежах по кредитам в ближайшие 7 дней (или просроченных)
-  const creditReminders = creditViews(state)
-    .filter((v) => v.nextPaymentDate)
-    .map((v) => ({ v, days: daysUntil(v.nextPaymentDate as string) }))
-    .filter((r) => r.days <= 7)
-    .sort((a, b) => a.days - b.days);
+  // Единые напоминания (кредиты + долги) на ближайшие 7 дней или просроченные
+  type Reminder = {
+    key: string;
+    days: number;
+    iso: string;
+    title: string;
+    amount: number;
+    onClick?: () => void;
+  };
+  const reminders: Reminder[] = [];
+  for (const v of creditViews(state)) {
+    if (!v.nextPaymentDate) continue;
+    const days = daysUntil(v.nextPaymentDate);
+    if (days > 7) continue;
+    reminders.push({
+      key: `c-${v.credit.id}`,
+      days,
+      iso: v.nextPaymentDate,
+      title: `Платёж по «${v.credit.name}»`,
+      amount: v.nextPaymentAmount,
+      onClick: onOpenCredits,
+    });
+  }
+  for (const d of state.debts ?? []) {
+    if (d.deleted || !d.dueDate || isDebtSettled(d)) continue;
+    const days = daysUntil(d.dueDate);
+    if (days > 7) continue;
+    reminders.push({
+      key: `d-${d.id}`,
+      days,
+      iso: d.dueDate,
+      title:
+        d.direction === "i_owe"
+          ? `Вернуть долг «${d.person || "без имени"}»`
+          : `Возврат от «${d.person || "без имени"}»`,
+      amount: debtOutstanding(d),
+      onClick: onOpenDebts,
+    });
+  }
+  reminders.sort((a, b) => a.days - b.days);
   const goal = state.goal;
   const goalRemaining = goal.target - goal.saved;
   const goalPercent = goal.target > 0 ? (goal.saved / goal.target) * 100 : 0;
@@ -89,16 +125,16 @@ export function Summary({
         </div>
       </div>
 
-      {/* Напоминания о платежах по кредитам */}
-      {creditReminders.length > 0 && (
+      {/* Напоминания: платежи по кредитам и сроки возврата долгов */}
+      {reminders.length > 0 && (
         <div className="space-y-2 md:col-span-2">
-          {creditReminders.map(({ v, days }) => {
-            const urgent = days <= 0;
+          {reminders.map((r) => {
+            const urgent = r.days <= 0;
             return (
               <button
-                key={v.credit.id}
+                key={r.key}
                 type="button"
-                onClick={onOpenCredits}
+                onClick={r.onClick}
                 className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left ${
                   urgent
                     ? "bg-red-50 dark:bg-red-950/40"
@@ -107,16 +143,14 @@ export function Summary({
               >
                 <span
                   className={`text-[20px] ${
-                    urgent
-                      ? "text-red-500"
-                      : "text-amber-500 dark:text-amber-400"
+                    urgent ? "text-red-500" : "text-amber-500 dark:text-amber-400"
                   }`}
                 >
                   {urgent ? "⚠️" : "🔔"}
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[15px] font-semibold">
-                    Платёж по «{v.credit.name}»
+                    {r.title}
                   </div>
                   <div
                     className={`text-[13px] ${
@@ -125,12 +159,11 @@ export function Summary({
                         : "text-amber-700 dark:text-amber-300"
                     }`}
                   >
-                    {relativeDayLabel(v.nextPaymentDate as string)} ·{" "}
-                    {formatDateLong(v.nextPaymentDate as string)}
+                    {relativeDayLabel(r.iso)} · {formatDateLong(r.iso)}
                   </div>
                 </div>
                 <span className="shrink-0 text-[15px] font-semibold">
-                  {formatMoney(v.nextPaymentAmount)}
+                  {formatMoney(r.amount)}
                 </span>
               </button>
             );
