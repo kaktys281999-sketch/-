@@ -3,17 +3,19 @@
 import {
   operationDelta,
   debtAccountDelta,
+  creditAccountDelta,
   currentBalance,
   totalOnHand,
   monthSummary,
   creditInfo,
+  creditView,
   debtOutstanding,
   debtPaidTotal,
   isDebtSettled,
   debtsSummary,
   realPosition,
 } from "./calc";
-import { AppState, Operation, Debt } from "./types";
+import { AppState, Operation, Debt, Credit } from "./types";
 
 let passed = 0;
 let failed = 0;
@@ -63,16 +65,25 @@ function state(p: Partial<AppState>): AppState {
       { id: "tinkoff", name: "Т-Банк", baseBalance: 0 },
     ],
     operations: [],
-    credit: {
-      received: 0,
-      receivedDate: "2026-01-01",
-      payment: 0,
-      count: 0,
-      paymentDates: [],
-    },
+    credits: [],
     goal: { name: "", target: 0, saved: 0 },
     debts: [],
     updatedAt: 0,
+    ...p,
+  };
+}
+
+function credit(p: Partial<Credit>): Credit {
+  return {
+    id: `c${n++}`,
+    name: "Кредит",
+    received: 0,
+    receivedDate: "2026-01-01",
+    payment: 0,
+    count: 0,
+    paymentDates: [],
+    accountId: "yandex",
+    payments: [],
     ...p,
   };
 }
@@ -144,25 +155,47 @@ const s3 = state({
 eq(monthSummary(s3, "2026-05"), { income: 3000, expense: 1000, diff: 2000 }, "итоги мая");
 eq(monthSummary(s3, "2026-04"), { income: 0, expense: 4444, diff: -4444 }, "итоги апреля");
 
-// ---- creditInfo (детерминированные поля) ----
+// ---- creditView (один кредит: остаток, X из N, следующая дата) ----
+const c1 = credit({
+  received: 45000,
+  payment: 5000,
+  count: 10,
+  paymentDates: ["2026-02-01", "2026-03-01", "2026-04-01"],
+  payments: [{ id: "p1", date: "2026-02-01", amount: 5000, accountId: "yandex" }],
+});
+const cv = creditView(c1);
+eq([cv.totalDue, cv.paid, cv.remaining, cv.overpay], [50000, 5000, 45000, 5000], "кредит: всего/выплачено/остаток/переплата");
+eq([cv.paidCount, cv.nextPaymentDate], [1, "2026-03-01"], "1 из 10, следующая дата");
+const cPaidOff = credit({ payment: 1000, count: 2, payments: [
+  { id: "a", date: "2026-01-01", amount: 1000, accountId: "yandex" },
+  { id: "b", date: "2026-02-01", amount: 1000, accountId: "yandex" },
+] });
+eq([creditView(cPaidOff).remaining, creditView(cPaidOff).isPaidOff, creditView(cPaidOff).nextPaymentDate], [0, true, null], "погашенный кредит");
+
+// ---- creditAccountDelta (платёж списывает со счёта) ----
+eq(creditAccountDelta(c1, "yandex"), -5000, "платёж по кредиту списан с Яндекса");
+eq(creditAccountDelta(c1, "sber"), 0, "чужой счёт не задет");
+
+// ---- creditInfo (агрегат по нескольким кредитам) ----
 const s4 = state({
-  credit: { received: 45000, receivedDate: "2026-01-01", payment: 5000, count: 10, paymentDates: [] },
-  operations: [
-    op({ type: "credit_loan", category: "Платёж по кредиту", amount: 5000, date: "2026-02-01" }),
-    op({ type: "credit_loan", category: "Платёж по кредиту", amount: 5000, date: "2025-12-01" }), // до получения — не в счёт
+  credits: [
+    credit({ received: 45000, payment: 5000, count: 10, paymentDates: ["2026-03-01"], payments: [{ id: "p", date: "2026-02-01", amount: 5000, accountId: "yandex" }] }),
+    credit({ received: 4000, payment: 1500, count: 3, paymentDates: ["2026-02-15"], payments: [] }),
+    credit({ payment: 9999, count: 9, deleted: true }), // надгробие — игнор
   ],
 });
 const ci = creditInfo(s4);
-eq([ci.totalDue, ci.overpay, ci.paid, ci.remaining], [50000, 5000, 5000, 45000], "кредит: всего/переплата/выплачено/остаток");
+// totalDue = 50000 + 4500 = 54500; paid = 5000; remaining = 49500; overpay = 5000 + 500
+eq([ci.totalDue, ci.paid, ci.remaining, ci.overpay], [54500, 5000, 49500, 5500], "агрегат кредитов");
+eq(ci.nextPaymentDate, "2026-02-15", "ближайший платёж — самая ранняя дата");
 
-// ---- realPosition (полный сценарий) ----
+// ---- realPosition (полный сценарий: кредит + долг) ----
 const s5 = state({
-  credit: { received: 45000, receivedDate: "2026-01-01", payment: 5000, count: 10, paymentDates: [] },
-  operations: [op({ type: "credit_loan", category: "Платёж по кредиту", amount: 5000, date: "2026-02-01" })],
+  credits: [credit({ received: 45000, payment: 5000, count: 10, accountId: "yandex", paymentDates: ["2026-02-01"], payments: [{ id: "p", date: "2026-02-01", amount: 5000, accountId: "yandex" }] })],
   debts: [debt({ direction: "owed_to_me", accountId: "sber", amount: 1500 })],
 });
-// на руках: 10000 + (5000−1500) + 0 − 5000(платёж) = 8500
-// реальная = 8500 − 45000(остаток) + 1500(вернут) − 0 = −35000
+// на руках: (10000 − 5000 платёж) + (5000 − 1500 долг) + 0 = 8500
+// реальная = 8500 − 45000(остаток кредита) + 1500(вернут) − 0
 eq(totalOnHand(s5), 8500, "на руках в сценарии с кредитом");
 eq(realPosition(s5), 8500 - 45000 + 1500, "реальная позиция");
 

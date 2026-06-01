@@ -1,8 +1,8 @@
 // Чистые денежные вычисления (без React) — чтобы их можно было покрыть тестами.
 // store.tsx реэкспортирует всё отсюда, поэтому существующие импорты не меняются.
-import { AppState, Operation, Debt } from "./types";
-import { getCategorySign, CREDIT_PAYMENT_CATEGORY } from "./categories";
-import { monthKeyFromISO, todayISO } from "./format";
+import { AppState, Operation, Debt, Credit } from "./types";
+import { getCategorySign } from "./categories";
+import { monthKeyFromISO } from "./format";
 
 // Дельта операции для баланса счёта
 export function operationDelta(op: Operation): number {
@@ -26,6 +26,16 @@ export function debtAccountDelta(debt: Debt, accountId: string): number {
   return delta;
 }
 
+// Влияние кредита на баланс счёта: платежи списываются со счёта (−).
+// Сама полученная сумма уже учтена в стартовом балансе, поэтому её не добавляем.
+export function creditAccountDelta(credit: Credit, accountId: string): number {
+  let delta = 0;
+  for (const p of credit.payments) {
+    if (p.accountId === accountId) delta -= p.amount;
+  }
+  return delta;
+}
+
 // ===== Производные вычисления (селекторы) =====
 
 export function currentBalance(state: AppState, accountId: string): number {
@@ -37,7 +47,10 @@ export function currentBalance(state: AppState, accountId: string): number {
   const debtDelta = (state.debts ?? [])
     .filter((d) => !d.deleted)
     .reduce((sum, d) => sum + debtAccountDelta(d, accountId), 0);
-  return acc.baseBalance + opDelta + debtDelta;
+  const creditDelta = (state.credits ?? [])
+    .filter((c) => !c.deleted)
+    .reduce((sum, c) => sum + creditAccountDelta(c, accountId), 0);
+  return acc.baseBalance + opDelta + debtDelta + creditDelta;
 }
 
 // На руках = сумма балансов всех счетов
@@ -77,37 +90,71 @@ export interface CreditInfo {
   nextPaymentAmount: number;
 }
 
-// Кредит: расчёты по ТЗ
+// Активные кредиты (без надгробий)
+export function activeCredits(state: AppState): Credit[] {
+  return (state.credits ?? []).filter((c) => !c.deleted);
+}
+
+export interface CreditView {
+  credit: Credit;
+  totalDue: number; // payment * count
+  paid: number; // сумма внесённых платежей
+  remaining: number; // осталось (не уходит в минус)
+  overpay: number; // переплата (totalDue − received)
+  paidCount: number; // сколько платежей внесено (для «X из N»)
+  nextPaymentDate: string | null; // следующая дата по расписанию
+  nextPaymentAmount: number;
+  isPaidOff: boolean;
+}
+
+// Расчёты по одному кредиту
+export function creditView(c: Credit): CreditView {
+  const totalDue = c.payment * c.count;
+  const paid = c.payments.reduce((sum, p) => sum + p.amount, 0);
+  const remaining = Math.max(0, totalDue - paid);
+  const paidCount = Math.min(c.count, c.payments.length);
+  const isPaidOff = remaining <= 0 || paidCount >= c.count;
+  const nextPaymentDate = isPaidOff ? null : c.paymentDates[paidCount] ?? null;
+  return {
+    credit: c,
+    totalDue,
+    paid,
+    remaining,
+    overpay: totalDue - c.received,
+    paidCount,
+    nextPaymentDate,
+    nextPaymentAmount: c.payment,
+    isPaidOff,
+  };
+}
+
+export function creditViews(state: AppState): CreditView[] {
+  return activeCredits(state).map(creditView);
+}
+
+// Кредиты: агрегат по всем активным (для «Сводки» и реальной позиции)
 export function creditInfo(state: AppState): CreditInfo {
-  const { credit } = state;
-  const totalDue = credit.payment * credit.count;
-  const overpay = totalDue - credit.received;
+  let totalDue = 0;
+  let paid = 0;
+  let overpay = 0;
+  let next: { date: string; amount: number } | null = null;
 
-  // Выплачено = сумма операций «Платёж по кредиту» после даты получения
-  const paid = state.operations
-    .filter(
-      (o) =>
-        !o.deleted &&
-        o.type === "credit_loan" &&
-        o.category === CREDIT_PAYMENT_CATEGORY &&
-        o.date > credit.receivedDate
-    )
-    .reduce((sum, o) => sum + o.amount, 0);
-
-  const remaining = totalDue - paid;
-
-  // Ближайший платёж — первая будущая (>= сегодня) дата из расписания
-  const today = todayISO();
-  const upcoming = [...credit.paymentDates].sort().find((d) => d >= today);
-  const nextPaymentDate = upcoming ?? null;
+  for (const v of creditViews(state)) {
+    totalDue += v.totalDue;
+    paid += v.paid;
+    overpay += v.overpay;
+    if (v.nextPaymentDate && (!next || v.nextPaymentDate < next.date)) {
+      next = { date: v.nextPaymentDate, amount: v.nextPaymentAmount };
+    }
+  }
 
   return {
     totalDue,
     overpay,
     paid,
-    remaining,
-    nextPaymentDate,
-    nextPaymentAmount: credit.payment,
+    remaining: Math.max(0, totalDue - paid),
+    nextPaymentDate: next?.date ?? null,
+    nextPaymentAmount: next?.amount ?? 0,
   };
 }
 

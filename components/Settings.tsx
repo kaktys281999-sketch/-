@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useStore, currentBalance, creditInfo } from "@/lib/store";
-import { formatMoney, formatDateLong } from "@/lib/format";
+import { useStore, currentBalance } from "@/lib/store";
 import { Theme, getTheme, setTheme, DEFAULT_THEME } from "@/lib/theme";
 import { operationsToCSV, downloadFile } from "@/lib/export";
 import { TYPES } from "@/lib/categories";
@@ -18,11 +17,9 @@ export function Settings() {
     state,
     setAccountBalance,
     updateGoal,
-    updateCredit,
     setPrimaryAccount,
     resetAll,
   } = useStore();
-  const credit = creditInfo(state);
   const primaryId =
     state.primaryAccountId ?? state.accounts[0]?.id ?? "";
 
@@ -124,73 +121,6 @@ export function Settings() {
         </Card>
       </div>
 
-      {/* Кредит */}
-      <div>
-        <SettingsTitle>Кредит</SettingsTitle>
-        <Card>
-        <div className="space-y-3">
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="mb-1 block text-sm text-slate-600 dark:text-slate-300">
-                Получено, ₽
-              </label>
-              <NumberInput
-                value={state.credit.received}
-                onCommit={(n) => updateCredit({ received: n })}
-                className={fieldCls}
-              />
-            </div>
-            <div className="flex-1">
-              <label className="mb-1 block text-sm text-slate-600 dark:text-slate-300">
-                Дата получения
-              </label>
-              <input
-                type="date"
-                value={state.credit.receivedDate}
-                onChange={(e) =>
-                  updateCredit({ receivedDate: e.target.value })
-                }
-                className={fieldCls}
-              />
-            </div>
-          </div>
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="mb-1 block text-sm text-slate-600 dark:text-slate-300">
-                Платёж, ₽
-              </label>
-              <NumberInput
-                value={state.credit.payment}
-                onCommit={(n) => updateCredit({ payment: n })}
-                className={fieldCls}
-              />
-            </div>
-            <div className="flex-1">
-              <label className="mb-1 block text-sm text-slate-600 dark:text-slate-300">
-                Кол-во платежей
-              </label>
-              <NumberInput
-                value={state.credit.count}
-                onCommit={(n) => updateCredit({ count: n })}
-                className={fieldCls}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-3 space-y-1 border-t border-[var(--separator)] pt-3 text-[15px]">
-          <Row label="Всего к выплате" value={formatMoney(credit.totalDue)} />
-          <Row label="Переплата" value={formatMoney(credit.overpay)} />
-          <Row label="Выплачено" value={formatMoney(credit.paid)} />
-          <Row label="Осталось выплатить" value={formatMoney(credit.remaining)} />
-          <div className="pt-1 text-[13px] text-label-2">
-            Платежи:{" "}
-            {state.credit.paymentDates.map((d) => formatDateLong(d)).join(", ")}
-          </div>
-        </div>
-        </Card>
-      </div>
-
       <BudgetsCard fieldCls={fieldCls} />
 
       {/* Экспорт */}
@@ -231,15 +161,6 @@ export function Settings() {
           CSV открывается в Excel и Google Таблицах — удобно как резервная копия.
         </p>
       </div>
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-slate-600 dark:text-slate-300">{label}</span>
-      <span className="font-medium">{value}</span>
     </div>
   );
 }

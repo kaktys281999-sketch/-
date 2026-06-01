@@ -23,13 +23,37 @@ export interface Operation {
   deleted?: boolean; // надгробие — операция удалена, но запись хранится для синхронизации
 }
 
-// Настройки кредита
+// Настройки кредита (легаси: один кредит). Сохранён для миграции старых данных.
 export interface CreditConfig {
   received: number; // полученная сумма
   receivedDate: string; // дата получения (ISO)
   payment: number; // размер платежа
   count: number; // количество платежей
   paymentDates: string[]; // даты платежей (ISO)
+}
+
+// Внесённый платёж по кредиту
+export interface CreditPayment {
+  id: string;
+  date: string; // ISO yyyy-mm-dd
+  amount: number; // всегда положительный
+  accountId: string; // с какого счёта списан платёж
+}
+
+// Кредит или рассрочка — отдельная сущность с историей платежей
+export interface Credit {
+  id: string;
+  name: string; // «Альфа-Банк», «Рассрочка Ozon»
+  received: number; // полученная сумма (для расчёта переплаты)
+  receivedDate: string; // дата получения (ISO)
+  payment: number; // размер регулярного платежа
+  count: number; // всего платежей
+  paymentDates: string[]; // расписание (ISO), считается из receivedDate + count
+  accountId: string; // счёт по умолчанию для платежей
+  payments: CreditPayment[]; // внесённые платежи
+  note?: string;
+  updatedAt?: number;
+  deleted?: boolean; // надгробие для синхронизации
 }
 
 // Цель накоплений
@@ -83,7 +107,10 @@ export interface Debt {
 export interface AppState {
   accounts: Account[];
   operations: Operation[];
-  credit: CreditConfig;
+  // легаси-поле одного кредита (миграция в credits при загрузке)
+  credit?: CreditConfig;
+  // кредиты и рассрочки
+  credits: Credit[];
   goal: Goal;
   // основной счёт — подставляется по умолчанию в формах
   primaryAccountId?: string;

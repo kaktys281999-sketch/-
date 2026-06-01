@@ -7,6 +7,7 @@ import { Summary } from "@/components/Summary";
 import { AddOperation } from "@/components/AddOperation";
 import { Operations } from "@/components/Operations";
 import { Debts } from "@/components/Debts";
+import { Credits } from "@/components/Credits";
 import { Settings } from "@/components/Settings";
 import { SyncBadge } from "@/components/SyncBadge";
 import { SaveButton } from "@/components/SaveButton";
@@ -15,10 +16,11 @@ import {
   IconAdd,
   IconList,
   IconDebts,
+  IconCredit,
   IconSettings,
 } from "@/components/icons";
 
-type Tab = "summary" | "add" | "operations" | "debts" | "settings";
+type Tab = "summary" | "add" | "operations" | "debts" | "credits" | "settings";
 
 const TABS: {
   id: Tab;
@@ -29,6 +31,7 @@ const TABS: {
   { id: "add", label: "Добавить", Icon: IconAdd },
   { id: "operations", label: "Операции", Icon: IconList },
   { id: "debts", label: "Долги", Icon: IconDebts },
+  { id: "credits", label: "Кредиты", Icon: IconCredit },
   { id: "settings", label: "Настройки", Icon: IconSettings },
 ];
 
@@ -117,6 +120,7 @@ export default function Home() {
               month={month}
               onSelectMonth={setMonth}
               onOpenDebts={() => setTab("debts")}
+              onOpenCredits={() => setTab("credits")}
             />
           )}
           {tab === "add" && (
@@ -137,6 +141,11 @@ export default function Home() {
           {tab === "debts" && (
             <div className="md:mx-auto md:max-w-2xl">
               <Debts />
+            </div>
+          )}
+          {tab === "credits" && (
+            <div className="md:mx-auto md:max-w-3xl">
+              <Credits />
             </div>
           )}
           {tab === "settings" && (

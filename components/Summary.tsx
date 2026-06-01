@@ -25,10 +25,12 @@ export function Summary({
   month,
   onSelectMonth,
   onOpenDebts,
+  onOpenCredits,
 }: {
   month: string;
   onSelectMonth?: (key: string) => void;
   onOpenDebts?: () => void;
+  onOpenCredits?: () => void;
 }) {
   const { state } = useStore();
   const onHand = totalOnHand(state);
@@ -185,26 +187,36 @@ export function Summary({
         </Card>
       </div>
 
-      {/* Кредит */}
-      <div>
-        <SectionTitle>Кредит</SectionTitle>
-        <Card className="!p-0">
-          <div className="flex items-center justify-between px-4 py-3 text-[15px]">
-            <span className="text-label-2">Ближайший платёж</span>
-            <span className="font-medium">
-              {credit.nextPaymentDate
-                ? `${formatDateLong(credit.nextPaymentDate)} · ${formatMoney(
-                    credit.nextPaymentAmount
-                  )}`
-                : "—"}
-            </span>
-          </div>
-          <div className="flex items-center justify-between border-t border-[var(--separator)] px-4 py-3 text-[15px]">
-            <span className="text-label-2">Остаток долга</span>
-            <span className="font-medium">{formatMoney(credit.remaining)}</span>
-          </div>
-        </Card>
-      </div>
+      {/* Кредиты */}
+      {credit.totalDue > 0 && (
+        <div>
+          <SectionTitle>Кредиты</SectionTitle>
+          <Card className="!p-0">
+            <button
+              type="button"
+              onClick={onOpenCredits}
+              className="flex w-full items-center justify-between px-4 py-3 text-left text-[15px] active:bg-black/[0.03] dark:active:bg-white/5"
+            >
+              <span className="text-label-2">Ближайший платёж</span>
+              <span className="font-medium">
+                {credit.nextPaymentDate
+                  ? `${formatDateLong(credit.nextPaymentDate)} · ${formatMoney(
+                      credit.nextPaymentAmount
+                    )}`
+                  : "—"}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenCredits}
+              className="flex w-full items-center justify-between border-t border-[var(--separator)] px-4 py-3 text-left text-[15px] active:bg-black/[0.03] dark:active:bg-white/5"
+            >
+              <span className="text-label-2">Осталось выплатить</span>
+              <span className="font-medium">{formatMoney(credit.remaining)}</span>
+            </button>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

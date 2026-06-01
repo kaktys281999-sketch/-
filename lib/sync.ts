@@ -1,4 +1,4 @@
-import { AppState, Operation, Debt } from "./types";
+import { AppState, Operation, Debt, Credit, CreditConfig } from "./types";
 
 // Формат данных, которыми приложение обменивается с Google-таблицей
 export interface SyncPayload {
@@ -6,12 +6,39 @@ export interface SyncPayload {
   updatedAt: number;
   accounts: AppState["accounts"];
   operations: AppState["operations"];
-  credit: AppState["credit"];
+  credit?: CreditConfig; // легаси: один кредит (для старых данных)
+  credits?: Credit[];
   goal: AppState["goal"];
   primaryAccountId?: AppState["primaryAccountId"];
   budgets?: AppState["budgets"];
   templates?: AppState["templates"];
   debts?: AppState["debts"];
+}
+
+// Преобразовать легаси-кредит (один) в новую сущность
+export function legacyCreditToCredit(c: CreditConfig): Credit {
+  return {
+    id: "credit-main",
+    name: "Кредит",
+    received: c.received ?? 0,
+    receivedDate: c.receivedDate ?? "",
+    payment: c.payment ?? 0,
+    count: c.count ?? 0,
+    paymentDates: c.paymentDates ?? [],
+    accountId: "",
+    payments: [],
+    updatedAt: 0,
+  };
+}
+
+// Получить список кредитов из данных любого формата (новый/легаси/пусто)
+export function resolveCredits(
+  credits: Credit[] | undefined,
+  credit: CreditConfig | undefined
+): Credit[] {
+  if (Array.isArray(credits)) return credits; // новый формат — уважаем даже пустой
+  if (credit) return [legacyCreditToCredit(credit)]; // легаси один кредит
+  return [];
 }
 
 export function toPayload(s: AppState): SyncPayload {
@@ -20,7 +47,7 @@ export function toPayload(s: AppState): SyncPayload {
     updatedAt: s.updatedAt,
     accounts: s.accounts,
     operations: s.operations,
-    credit: s.credit,
+    credits: s.credits ?? [],
     goal: s.goal,
     primaryAccountId: s.primaryAccountId,
     budgets: s.budgets ?? {},
@@ -33,7 +60,7 @@ export function fromPayload(p: SyncPayload): AppState {
   return {
     accounts: p.accounts,
     operations: p.operations,
-    credit: p.credit,
+    credits: resolveCredits(p.credits, p.credit),
     goal: p.goal,
     primaryAccountId: p.primaryAccountId,
     budgets: p.budgets ?? {},
@@ -72,18 +99,28 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
   }
   const debts = Array.from(debtById.values());
 
+  // Кредиты сливаем по id: побеждает более свежая версия (по updatedAt)
+  const creditById = new Map<string, Credit>();
+  for (const c of local.credits ?? []) creditById.set(c.id, c);
+  for (const c of remote.credits ?? []) {
+    const cur = creditById.get(c.id);
+    if (!cur) creditById.set(c.id, c);
+    else creditById.set(c.id, (c.updatedAt ?? 0) >= (cur.updatedAt ?? 0) ? c : cur);
+  }
+  const credits = Array.from(creditById.values());
+
   const remoteNewer = (remote.updatedAt ?? 0) > (local.updatedAt ?? 0);
   const base = remoteNewer ? remote : local;
 
   return {
     accounts: base.accounts,
-    credit: base.credit,
     goal: base.goal,
     primaryAccountId: base.primaryAccountId,
     budgets: base.budgets ?? {},
     templates: base.templates ?? [],
     operations,
     debts,
+    credits,
     updatedAt: Math.max(local.updatedAt ?? 0, remote.updatedAt ?? 0),
   };
 }

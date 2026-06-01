@@ -13,11 +13,12 @@ import {
   AppState,
   Operation,
   Account,
-  CreditConfig,
   Goal,
   Template,
   Debt,
   DebtPayment,
+  Credit,
+  CreditPayment,
 } from "./types";
 import { todayISO, generatePaymentDates } from "./format";
 import { operationDelta, debtAccountDelta } from "./calc";
@@ -30,6 +31,7 @@ import {
   toPayload,
   fromPayload,
   mergeStates,
+  legacyCreditToCredit,
   pull,
   push,
 } from "./sync";
@@ -45,13 +47,20 @@ const INITIAL_STATE: AppState = {
     { id: "tinkoff", name: "Тинькофф", baseBalance: 344 },
   ],
   operations: [],
-  credit: {
-    received: 30000,
-    receivedDate: "2026-05-26",
-    payment: 10921,
-    count: 3,
-    paymentDates: ["2026-06-26", "2026-07-26", "2026-08-26"],
-  },
+  credits: [
+    {
+      id: "credit-main",
+      name: "Кредит",
+      received: 30000,
+      receivedDate: "2026-05-26",
+      payment: 10921,
+      count: 3,
+      paymentDates: ["2026-06-26", "2026-07-26", "2026-08-26"],
+      accountId: "yandex",
+      payments: [],
+      updatedAt: 0,
+    },
+  ],
   goal: {
     name: "Квартира",
     target: 40000,
@@ -80,7 +89,14 @@ interface StoreContextValue {
   restoreOperation: (id: string) => void;
   setAccountBalance: (id: string, currentBalance: number) => void;
   updateGoal: (goal: Partial<Goal>) => void;
-  updateCredit: (credit: Partial<CreditConfig>) => void;
+  // Кредиты
+  addCredit: (
+    c: Omit<Credit, "id" | "payments" | "paymentDates" | "updatedAt">
+  ) => void;
+  updateCredit: (id: string, patch: Partial<Omit<Credit, "id">>) => void;
+  deleteCredit: (id: string) => void;
+  addCreditPayment: (creditId: string, payment: Omit<CreditPayment, "id">) => void;
+  deleteCreditPayment: (creditId: string, paymentId: string) => void;
   setPrimaryAccount: (id: string) => void;
   setBudget: (category: string, limit: number) => void;
   addTemplate: (t: Omit<Template, "id">) => void;
@@ -113,7 +129,7 @@ function loadState(): AppState {
     return {
       accounts: parsed.accounts ?? INITIAL_STATE.accounts,
       operations: parsed.operations ?? INITIAL_STATE.operations,
-      credit: { ...INITIAL_STATE.credit, ...parsed.credit },
+      credits: migrateCredits(parsed),
       goal: { ...INITIAL_STATE.goal, ...parsed.goal },
       primaryAccountId: parsed.primaryAccountId ?? INITIAL_STATE.primaryAccountId,
       budgets: parsed.budgets ?? {},
@@ -124,6 +140,20 @@ function loadState(): AppState {
   } catch {
     return INITIAL_STATE;
   }
+}
+
+// Кредиты из сохранённых данных с миграцией легаси-формата (один кредит).
+function migrateCredits(p: Partial<AppState>): Credit[] {
+  if (Array.isArray(p.credits)) return p.credits; // новый формат (даже пустой)
+  if (p.credit) {
+    return [
+      {
+        ...legacyCreditToCredit(p.credit),
+        accountId: p.primaryAccountId ?? "yandex",
+      },
+    ];
+  }
+  return INITIAL_STATE.credits; // нет данных вовсе — стартовый набор
 }
 
 function loadSyncConfig(): SyncConfig {
@@ -395,19 +425,88 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setState((s) => ({ ...s, ...touch({ goal: { ...s.goal, ...goal } }) }));
     };
 
-    const updateCredit = (patch: Partial<CreditConfig>) => {
+    // ===== Кредиты =====
+    const addCredit = (
+      c: Omit<Credit, "id" | "payments" | "paymentDates" | "updatedAt">
+    ) => {
       setState((s) => {
-        const credit = { ...s.credit, ...patch };
-        // При изменении даты получения или количества платежей пересобираем
-        // расписание, чтобы «всего к выплате» и список дат не расходились.
-        if (patch.count !== undefined || patch.receivedDate !== undefined) {
-          credit.paymentDates = generatePaymentDates(
-            credit.receivedDate,
-            credit.count
-          );
-        }
-        return { ...s, ...touch({ credit }) };
+        const credit: Credit = {
+          ...c,
+          id: uid(),
+          payments: [],
+          paymentDates: generatePaymentDates(c.receivedDate, c.count),
+          updatedAt: Date.now(),
+        };
+        return { ...s, ...touch({ credits: [...(s.credits ?? []), credit] }) };
       });
+    };
+
+    const updateCredit = (id: string, patch: Partial<Omit<Credit, "id">>) => {
+      setState((s) => ({
+        ...s,
+        ...touch({
+          credits: (s.credits ?? []).map((c) => {
+            if (c.id !== id) return c;
+            const next = { ...c, ...patch, updatedAt: Date.now() };
+            // Пересобираем расписание при изменении даты/количества
+            if (patch.count !== undefined || patch.receivedDate !== undefined) {
+              next.paymentDates = generatePaymentDates(
+                next.receivedDate,
+                next.count
+              );
+            }
+            return next;
+          }),
+        }),
+      }));
+    };
+
+    const deleteCredit = (id: string) => {
+      setState((s) => ({
+        ...s,
+        ...touch({
+          credits: (s.credits ?? []).map((c) =>
+            c.id === id ? { ...c, deleted: true, updatedAt: Date.now() } : c
+          ),
+        }),
+      }));
+    };
+
+    const addCreditPayment = (
+      creditId: string,
+      payment: Omit<CreditPayment, "id">
+    ) => {
+      setState((s) => ({
+        ...s,
+        ...touch({
+          credits: (s.credits ?? []).map((c) =>
+            c.id === creditId
+              ? {
+                  ...c,
+                  payments: [...c.payments, { ...payment, id: uid() }],
+                  updatedAt: Date.now(),
+                }
+              : c
+          ),
+        }),
+      }));
+    };
+
+    const deleteCreditPayment = (creditId: string, paymentId: string) => {
+      setState((s) => ({
+        ...s,
+        ...touch({
+          credits: (s.credits ?? []).map((c) =>
+            c.id === creditId
+              ? {
+                  ...c,
+                  payments: c.payments.filter((p) => p.id !== paymentId),
+                  updatedAt: Date.now(),
+                }
+              : c
+          ),
+        }),
+      }));
     };
 
     const setPrimaryAccount = (id: string) => {
@@ -578,7 +677,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       restoreOperation,
       setAccountBalance,
       updateGoal,
+      addCredit,
       updateCredit,
+      deleteCredit,
+      addCreditPayment,
+      deleteCreditPayment,
       setPrimaryAccount,
       setBudget,
       addTemplate,
