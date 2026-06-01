@@ -57,6 +57,7 @@ const INITIAL_STATE: AppState = {
     target: 40000,
     saved: 0,
   },
+  primaryAccountId: "yandex",
   budgets: {},
   templates: [],
   debts: [],
@@ -80,6 +81,7 @@ interface StoreContextValue {
   setAccountBalance: (id: string, currentBalance: number) => void;
   updateGoal: (goal: Partial<Goal>) => void;
   updateCredit: (credit: Partial<CreditConfig>) => void;
+  setPrimaryAccount: (id: string) => void;
   setBudget: (category: string, limit: number) => void;
   addTemplate: (t: Omit<Template, "id">) => void;
   deleteTemplate: (id: string) => void;
@@ -113,6 +115,7 @@ function loadState(): AppState {
       operations: parsed.operations ?? INITIAL_STATE.operations,
       credit: { ...INITIAL_STATE.credit, ...parsed.credit },
       goal: { ...INITIAL_STATE.goal, ...parsed.goal },
+      primaryAccountId: parsed.primaryAccountId ?? INITIAL_STATE.primaryAccountId,
       budgets: parsed.budgets ?? {},
       templates: parsed.templates ?? [],
       debts: parsed.debts ?? [],
@@ -407,6 +410,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
     };
 
+    const setPrimaryAccount = (id: string) => {
+      setState((s) => ({ ...s, ...touch({ primaryAccountId: id }) }));
+    };
+
     // Установить/убрать месячный лимит по категории (0 — убрать)
     const setBudget = (category: string, limit: number) => {
       setState((s) => {
@@ -572,6 +579,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setAccountBalance,
       updateGoal,
       updateCredit,
+      setPrimaryAccount,
       setBudget,
       addTemplate,
       deleteTemplate,

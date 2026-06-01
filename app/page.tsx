@@ -9,6 +9,7 @@ import { Operations } from "@/components/Operations";
 import { Debts } from "@/components/Debts";
 import { Settings } from "@/components/Settings";
 import { SyncBadge } from "@/components/SyncBadge";
+import { SaveButton } from "@/components/SaveButton";
 import {
   IconSummary,
   IconAdd,
@@ -62,7 +63,8 @@ export default function Home() {
           <h1 className="text-[34px] font-bold leading-tight tracking-tight">
             {title}
           </h1>
-          <div className="pb-1.5">
+          <div className="flex items-center gap-2 pb-1.5">
+            <SaveButton />
             <SyncBadge />
           </div>
         </div>

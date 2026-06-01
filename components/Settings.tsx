@@ -14,9 +14,17 @@ const EXPENSE_CATEGORIES = TYPES.filter(
 ).flatMap((t) => t.categories.map((c) => c.name));
 
 export function Settings() {
-  const { state, setAccountBalance, updateGoal, updateCredit, resetAll } =
-    useStore();
+  const {
+    state,
+    setAccountBalance,
+    updateGoal,
+    updateCredit,
+    setPrimaryAccount,
+    resetAll,
+  } = useStore();
   const credit = creditInfo(state);
+  const primaryId =
+    state.primaryAccountId ?? state.accounts[0]?.id ?? "";
 
   const fieldCls =
     "w-full rounded-xl bg-black/[0.04] px-3.5 py-2.5 outline-none focus:ring-2 focus:ring-brand/40 dark:bg-white/[0.06] dark:text-slate-100";
@@ -26,6 +34,30 @@ export function Settings() {
       <ThemeCard />
 
       <SyncCard fieldCls={fieldCls} />
+
+      {/* Основной счёт */}
+      <div>
+        <SettingsTitle>Основной счёт</SettingsTitle>
+        <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/[0.06] p-1 dark:bg-white/10">
+          {state.accounts.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => setPrimaryAccount(a.id)}
+              className={`rounded-lg py-2 text-[14px] font-medium ${
+                primaryId === a.id
+                  ? "bg-[var(--card)] text-slate-900 shadow-sm dark:text-white"
+                  : "text-label-2"
+              }`}
+            >
+              {a.name}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 px-1 text-[13px] text-label-2">
+          Подставляется по умолчанию при добавлении операций и долгов.
+        </p>
+      </div>
 
       {/* Балансы счетов */}
       <div>

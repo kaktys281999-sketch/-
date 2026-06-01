@@ -193,7 +193,11 @@ function DebtGroup({
 
 function DebtForm({ onClose }: { onClose: () => void }) {
   const { state, addDebt } = useStore();
-  const defaultAccount = state.accounts[0]?.id ?? "";
+  const defaultAccount =
+    (state.primaryAccountId &&
+      state.accounts.some((a) => a.id === state.primaryAccountId)
+      ? state.primaryAccountId
+      : state.accounts[0]?.id) ?? "";
   const [direction, setDirection] = useState<DebtDirection>("owed_to_me");
   const [person, setPerson] = useState("");
   const [amount, setAmount] = useState("");

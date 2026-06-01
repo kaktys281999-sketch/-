@@ -8,6 +8,7 @@ export interface SyncPayload {
   operations: AppState["operations"];
   credit: AppState["credit"];
   goal: AppState["goal"];
+  primaryAccountId?: AppState["primaryAccountId"];
   budgets?: AppState["budgets"];
   templates?: AppState["templates"];
   debts?: AppState["debts"];
@@ -21,6 +22,7 @@ export function toPayload(s: AppState): SyncPayload {
     operations: s.operations,
     credit: s.credit,
     goal: s.goal,
+    primaryAccountId: s.primaryAccountId,
     budgets: s.budgets ?? {},
     templates: s.templates ?? [],
     debts: s.debts ?? [],
@@ -33,6 +35,7 @@ export function fromPayload(p: SyncPayload): AppState {
     operations: p.operations,
     credit: p.credit,
     goal: p.goal,
+    primaryAccountId: p.primaryAccountId,
     budgets: p.budgets ?? {},
     templates: p.templates ?? [],
     debts: p.debts ?? [],
@@ -76,6 +79,7 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
     accounts: base.accounts,
     credit: base.credit,
     goal: base.goal,
+    primaryAccountId: base.primaryAccountId,
     budgets: base.budgets ?? {},
     templates: base.templates ?? [],
     operations,

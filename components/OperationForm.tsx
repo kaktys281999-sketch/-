@@ -84,24 +84,12 @@ export function OperationForm({
   onDraftChange?: (draft: Omit<Operation, "id">) => void;
 }) {
   const { state } = useStore();
-  // Счёт по умолчанию — самый используемый в операциях (иначе первый)
+  // Счёт по умолчанию — основной (из настроек), иначе первый в списке
   const defaultAccount = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const o of state.operations) {
-      if (o.deleted) continue;
-      counts.set(o.accountId, (counts.get(o.accountId) ?? 0) + 1);
-    }
-    let best = state.accounts[0]?.id ?? "";
-    let max = -1;
-    for (const a of state.accounts) {
-      const c = counts.get(a.id) ?? 0;
-      if (c > max) {
-        max = c;
-        best = a.id;
-      }
-    }
-    return best;
-  }, [state.operations, state.accounts]);
+    const primary = state.primaryAccountId;
+    if (primary && state.accounts.some((a) => a.id === primary)) return primary;
+    return state.accounts[0]?.id ?? "";
+  }, [state.primaryAccountId, state.accounts]);
 
   // Свежий черновик: подставляем последний использованный набор,
   // иначе — дефолт «Расход / Продукты». Счёт берём из памяти, если он есть.

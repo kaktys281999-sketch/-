@@ -85,6 +85,8 @@ export interface AppState {
   operations: Operation[];
   credit: CreditConfig;
   goal: Goal;
+  // основной счёт — подставляется по умолчанию в формах
+  primaryAccountId?: string;
   // месячные лимиты расходов по категориям (необязательно для старых данных)
   budgets?: Budgets;
   // шаблоны частых операций
