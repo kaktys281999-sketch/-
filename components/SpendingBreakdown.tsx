@@ -47,7 +47,15 @@ export function SpendingBreakdown({
       ) : (
         <div className="space-y-3">
           {rows.map((r, i) => {
-            const percent = total > 0 ? (r.amount / total) * 100 : 0;
+            const budget = state.budgets?.[r.category] ?? 0;
+            const hasBudget = budget > 0;
+            const over = hasBudget && r.amount > budget;
+            // ширина: к лимиту (если задан) иначе доля от общих расходов
+            const fill = hasBudget
+              ? Math.min(100, (r.amount / budget) * 100)
+              : total > 0
+              ? (r.amount / total) * 100
+              : 0;
             return (
               <div key={r.category}>
                 <div className="mb-1 flex items-center justify-between text-sm">
@@ -55,18 +63,43 @@ export function SpendingBreakdown({
                     {r.category}
                   </span>
                   <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
-                    {formatMoney(r.amount)} · {Math.round(percent)}%
+                    {hasBudget ? (
+                      <>
+                        {formatMoney(r.amount)}{" "}
+                        <span
+                          className={
+                            over
+                              ? "text-red-600 dark:text-red-400"
+                              : "text-slate-400 dark:text-slate-500"
+                          }
+                        >
+                          / {formatMoney(budget)}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        {formatMoney(r.amount)} ·{" "}
+                        {Math.round(total > 0 ? (r.amount / total) * 100 : 0)}%
+                      </>
+                    )}
                   </span>
                 </div>
                 <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                   <div
-                    className="h-full rounded-full bg-brand transition-all"
+                    className={`h-full rounded-full transition-all ${
+                      over ? "bg-red-500" : "bg-brand"
+                    }`}
                     style={{
-                      width: `${percent}%`,
-                      opacity: 1 - i * 0.12,
+                      width: `${fill}%`,
+                      opacity: hasBudget ? 1 : 1 - i * 0.12,
                     }}
                   />
                 </div>
+                {over && (
+                  <div className="mt-0.5 text-xs text-red-600 dark:text-red-400">
+                    Превышен на {formatMoney(r.amount - budget)}
+                  </div>
+                )}
               </div>
             );
           })}

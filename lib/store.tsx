@@ -46,6 +46,7 @@ const INITIAL_STATE: AppState = {
     target: 40000,
     saved: 0,
   },
+  budgets: {},
   updatedAt: 0,
 };
 
@@ -66,6 +67,7 @@ interface StoreContextValue {
   setAccountBalance: (id: string, currentBalance: number) => void;
   updateGoal: (goal: Partial<Goal>) => void;
   updateCredit: (credit: Partial<CreditConfig>) => void;
+  setBudget: (category: string, limit: number) => void;
   resetAll: () => void;
   // Синхронизация с Google-таблицей
   sync: SyncConfig;
@@ -89,6 +91,7 @@ function loadState(): AppState {
       operations: parsed.operations ?? INITIAL_STATE.operations,
       credit: { ...INITIAL_STATE.credit, ...parsed.credit },
       goal: { ...INITIAL_STATE.goal, ...parsed.goal },
+      budgets: parsed.budgets ?? {},
       updatedAt: parsed.updatedAt ?? 0,
     };
   } catch {
@@ -330,6 +333,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }));
     };
 
+    // Установить/убрать месячный лимит по категории (0 — убрать)
+    const setBudget = (category: string, limit: number) => {
+      setState((s) => {
+        const budgets = { ...(s.budgets ?? {}) };
+        if (limit > 0) budgets[category] = limit;
+        else delete budgets[category];
+        return { ...s, ...touch({ budgets }) };
+      });
+    };
+
     const resetAll = () => {
       setState({ ...INITIAL_STATE, updatedAt: Date.now() });
     };
@@ -347,6 +360,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setAccountBalance,
       updateGoal,
       updateCredit,
+      setBudget,
       resetAll,
       sync,
       syncState,

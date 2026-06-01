@@ -8,6 +8,7 @@ export interface SyncPayload {
   operations: AppState["operations"];
   credit: AppState["credit"];
   goal: AppState["goal"];
+  budgets?: AppState["budgets"];
 }
 
 export function toPayload(s: AppState): SyncPayload {
@@ -18,6 +19,7 @@ export function toPayload(s: AppState): SyncPayload {
     operations: s.operations,
     credit: s.credit,
     goal: s.goal,
+    budgets: s.budgets ?? {},
   };
 }
 
@@ -27,6 +29,7 @@ export function fromPayload(p: SyncPayload): AppState {
     operations: p.operations,
     credit: p.credit,
     goal: p.goal,
+    budgets: p.budgets ?? {},
     updatedAt: p.updatedAt ?? 0,
   };
 }
@@ -57,6 +60,7 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
     accounts: base.accounts,
     credit: base.credit,
     goal: base.goal,
+    budgets: base.budgets ?? {},
     operations,
     updatedAt: Math.max(local.updatedAt ?? 0, remote.updatedAt ?? 0),
   };

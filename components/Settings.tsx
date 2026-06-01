@@ -5,7 +5,13 @@ import { useStore, currentBalance, creditInfo } from "@/lib/store";
 import { formatMoney, formatDateLong } from "@/lib/format";
 import { Theme, getTheme, setTheme, DEFAULT_THEME } from "@/lib/theme";
 import { operationsToCSV, downloadFile } from "@/lib/export";
+import { TYPES } from "@/lib/categories";
 import { Card, NumberInput } from "./ui";
+
+// Категории расходов (личные + рабочие) — для лимитов
+const EXPENSE_CATEGORIES = TYPES.filter(
+  (t) => t.type === "expense_personal" || t.type === "expense_work"
+).flatMap((t) => t.categories.map((c) => c.name));
 
 export function Settings() {
   const { state, setAccountBalance, updateGoal, updateCredit, resetAll } =
@@ -150,6 +156,8 @@ export function Settings() {
         </div>
       </Card>
 
+      <BudgetsCard fieldCls={fieldCls} />
+
       {/* Экспорт */}
       <Card>
         <div className="mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">
@@ -201,6 +209,34 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-slate-600 dark:text-slate-300">{label}</span>
       <span className="font-medium">{value}</span>
     </div>
+  );
+}
+
+function BudgetsCard({ fieldCls }: { fieldCls: string }) {
+  const { state, setBudget } = useStore();
+  return (
+    <Card>
+      <div className="mb-1 text-sm font-medium text-slate-500 dark:text-slate-400">
+        Бюджеты по категориям
+      </div>
+      <p className="mb-3 text-xs text-slate-400 dark:text-slate-500">
+        Месячный лимит расходов. 0 — без лимита. Прогресс виден на «Сводке».
+      </p>
+      <div className="space-y-2.5">
+        {EXPENSE_CATEGORIES.map((cat) => (
+          <div key={cat} className="flex items-center justify-between gap-3">
+            <label className="text-sm text-slate-600 dark:text-slate-300">
+              {cat}
+            </label>
+            <NumberInput
+              value={state.budgets?.[cat] ?? 0}
+              onCommit={(n) => setBudget(cat, n)}
+              className={`${fieldCls} w-28 text-right`}
+            />
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 

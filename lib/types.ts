@@ -39,12 +39,17 @@ export interface Goal {
   saved: number; // ручное поле
 }
 
+// Месячные лимиты по категориям расходов: { "Продукты / еда / вода": 15000 }
+export type Budgets = Record<string, number>;
+
 // Всё состояние приложения
 export interface AppState {
   accounts: Account[];
   operations: Operation[];
   credit: CreditConfig;
   goal: Goal;
+  // месячные лимиты расходов по категориям (необязательно для старых данных)
+  budgets?: Budgets;
   // момент последнего изменения (мс) — для разрешения конфликтов синхронизации
   updatedAt: number;
 }
