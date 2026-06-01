@@ -179,7 +179,11 @@ export function OperationForm({
 
   function handleTypeChange(type: OpType) {
     const def = getTypeDef(type);
-    setDraft((d) => ({ ...d, type, category: def.categories[0].name }));
+    // выбираем самую частую категорию этого типа (как в отсортированных чипах)
+    const top = def.categories
+      .map((c, i) => ({ name: c.name, i, n: categoryCounts.get(c.name) ?? 0 }))
+      .sort((a, b) => (b.n !== a.n ? b.n - a.n : a.i - b.i))[0];
+    setDraft((d) => ({ ...d, type, category: top?.name ?? def.categories[0].name }));
   }
 
   function handleSubmit(e: React.FormEvent) {
