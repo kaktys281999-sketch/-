@@ -19,9 +19,14 @@ import {
   DebtPayment,
   Credit,
   CreditPayment,
+  RecurringRule,
 } from "./types";
-import { todayISO, generatePaymentDates } from "./format";
-import { operationDelta, debtAccountDelta } from "./calc";
+import { todayISO, generatePaymentDates, monthKey } from "./format";
+import {
+  operationDelta,
+  debtAccountDelta,
+  dueRecurringOperations,
+} from "./calc";
 // Денежные селекторы живут в ./calc (без React) — реэкспортируем для потребителей
 export * from "./calc";
 import {
@@ -69,6 +74,7 @@ const INITIAL_STATE: AppState = {
   primaryAccountId: "yandex",
   budgets: {},
   templates: [],
+  recurring: [],
   debts: [],
   updatedAt: 0,
 };
@@ -101,6 +107,10 @@ interface StoreContextValue {
   setBudget: (category: string, limit: number) => void;
   addTemplate: (t: Omit<Template, "id">) => void;
   deleteTemplate: (id: string) => void;
+  // Регулярные операции
+  addRecurring: (r: Omit<RecurringRule, "id" | "updatedAt">) => void;
+  updateRecurring: (id: string, patch: Partial<Omit<RecurringRule, "id">>) => void;
+  deleteRecurring: (id: string) => void;
   // Долги
   addDebt: (d: Omit<Debt, "id" | "payments">) => void;
   updateDebt: (id: string, patch: Partial<Omit<Debt, "id">>) => void;
@@ -134,6 +144,7 @@ function loadState(): AppState {
       primaryAccountId: parsed.primaryAccountId ?? INITIAL_STATE.primaryAccountId,
       budgets: parsed.budgets ?? {},
       templates: parsed.templates ?? [],
+      recurring: parsed.recurring ?? [],
       debts: parsed.debts ?? [],
       updatedAt: parsed.updatedAt ?? 0,
     };
@@ -234,6 +245,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!hydrated) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state, hydrated]);
+
+  // Догенерировать операции по регулярным правилам (при запуске и смене правил)
+  useEffect(() => {
+    if (!hydrated) return;
+    setState((s) => {
+      const due = dueRecurringOperations(
+        s.recurring ?? [],
+        new Set(s.operations.map((o) => o.id)),
+        monthKey(new Date()),
+        todayISO()
+      );
+      if (!due.length) return s;
+      return {
+        ...s,
+        operations: [...s.operations, ...due],
+        updatedAt: Date.now(),
+      };
+    });
+  }, [hydrated, state.recurring]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -539,6 +569,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }));
     };
 
+    // ===== Регулярные операции =====
+    const addRecurring = (r: Omit<RecurringRule, "id" | "updatedAt">) => {
+      setState((s) => ({
+        ...s,
+        ...touch({
+          recurring: [
+            ...(s.recurring ?? []),
+            { ...r, id: uid(), updatedAt: Date.now() },
+          ],
+        }),
+      }));
+    };
+
+    const updateRecurring = (
+      id: string,
+      patch: Partial<Omit<RecurringRule, "id">>
+    ) => {
+      setState((s) => ({
+        ...s,
+        ...touch({
+          recurring: (s.recurring ?? []).map((r) =>
+            r.id === id ? { ...r, ...patch, updatedAt: Date.now() } : r
+          ),
+        }),
+      }));
+    };
+
+    const deleteRecurring = (id: string) => {
+      setState((s) => ({
+        ...s,
+        ...touch({
+          recurring: (s.recurring ?? []).map((r) =>
+            r.id === id ? { ...r, deleted: true, updatedAt: Date.now() } : r
+          ),
+        }),
+      }));
+    };
+
     // ===== Долги =====
     const addDebt = (d: Omit<Debt, "id" | "payments">) => {
       const now = Date.now();
@@ -686,6 +754,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setBudget,
       addTemplate,
       deleteTemplate,
+      addRecurring,
+      updateRecurring,
+      deleteRecurring,
       addDebt,
       updateDebt,
       deleteDebt,

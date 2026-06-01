@@ -18,9 +18,27 @@ export interface Operation {
   amount: number; // всегда положительное число
   accountId: string;
   note: string;
+  // id регулярного правила, если операция создана автоматически
+  recurringId?: string;
   // Метаданные для слияния при синхронизации (необязательны для старых данных)
   updatedAt?: number; // время последнего изменения операции (мс)
   deleted?: boolean; // надгробие — операция удалена, но запись хранится для синхронизации
+}
+
+// Регулярная (повторяющаяся) операция: создаёт операцию каждый месяц
+export interface RecurringRule {
+  id: string;
+  title: string; // короткая подпись
+  type: OpType;
+  category: string;
+  amount: number;
+  accountId: string;
+  dayOfMonth: number; // число месяца (1..31, обрезается под короткие месяцы)
+  startMonth: string; // с какого месяца начинать, «YYYY-MM»
+  note: string;
+  active?: boolean; // включено (по умолчанию true)
+  updatedAt?: number;
+  deleted?: boolean; // надгробие
 }
 
 // Настройки кредита (легаси: один кредит). Сохранён для миграции старых данных.
@@ -119,6 +137,8 @@ export interface AppState {
   budgets?: Budgets;
   // шаблоны частых операций
   templates?: Template[];
+  // регулярные операции
+  recurring?: RecurringRule[];
   // долги (мне должны / я должен)
   debts?: Debt[];
   // момент последнего изменения (мс) — для разрешения конфликтов синхронизации

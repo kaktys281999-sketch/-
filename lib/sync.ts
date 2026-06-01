@@ -1,4 +1,11 @@
-import { AppState, Operation, Debt, Credit, CreditConfig } from "./types";
+import {
+  AppState,
+  Operation,
+  Debt,
+  Credit,
+  CreditConfig,
+  RecurringRule,
+} from "./types";
 
 // Формат данных, которыми приложение обменивается с Google-таблицей
 export interface SyncPayload {
@@ -12,6 +19,7 @@ export interface SyncPayload {
   primaryAccountId?: AppState["primaryAccountId"];
   budgets?: AppState["budgets"];
   templates?: AppState["templates"];
+  recurring?: AppState["recurring"];
   debts?: AppState["debts"];
 }
 
@@ -52,6 +60,7 @@ export function toPayload(s: AppState): SyncPayload {
     primaryAccountId: s.primaryAccountId,
     budgets: s.budgets ?? {},
     templates: s.templates ?? [],
+    recurring: s.recurring ?? [],
     debts: s.debts ?? [],
   };
 }
@@ -65,6 +74,7 @@ export function fromPayload(p: SyncPayload): AppState {
     primaryAccountId: p.primaryAccountId,
     budgets: p.budgets ?? {},
     templates: p.templates ?? [],
+    recurring: p.recurring ?? [],
     debts: p.debts ?? [],
     updatedAt: p.updatedAt ?? 0,
   };
@@ -109,6 +119,16 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
   }
   const credits = Array.from(creditById.values());
 
+  // Регулярные правила сливаем по id (побеждает более свежая версия)
+  const recById = new Map<string, RecurringRule>();
+  for (const r of local.recurring ?? []) recById.set(r.id, r);
+  for (const r of remote.recurring ?? []) {
+    const cur = recById.get(r.id);
+    if (!cur) recById.set(r.id, r);
+    else recById.set(r.id, (r.updatedAt ?? 0) >= (cur.updatedAt ?? 0) ? r : cur);
+  }
+  const recurring = Array.from(recById.values());
+
   const remoteNewer = (remote.updatedAt ?? 0) > (local.updatedAt ?? 0);
   const base = remoteNewer ? remote : local;
 
@@ -118,6 +138,7 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
     primaryAccountId: base.primaryAccountId,
     budgets: base.budgets ?? {},
     templates: base.templates ?? [],
+    recurring,
     operations,
     debts,
     credits,

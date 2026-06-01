@@ -14,8 +14,9 @@ import {
   isDebtSettled,
   debtsSummary,
   realPosition,
+  dueRecurringOperations,
 } from "./calc";
-import { AppState, Operation, Debt, Credit } from "./types";
+import { AppState, Operation, Debt, Credit, RecurringRule } from "./types";
 
 let passed = 0;
 let failed = 0;
@@ -198,6 +199,43 @@ const s5 = state({
 // реальная = 8500 − 45000(остаток кредита) + 1500(вернут) − 0
 eq(totalOnHand(s5), 8500, "на руках в сценарии с кредитом");
 eq(realPosition(s5), 8500 - 45000 + 1500, "реальная позиция");
+
+// ---- dueRecurringOperations ----
+function rule(p: Partial<RecurringRule>): RecurringRule {
+  return {
+    id: "r1",
+    title: "Аренда",
+    type: "expense_personal",
+    category: "Остальное / разное",
+    amount: 20000,
+    accountId: "yandex",
+    dayOfMonth: 5,
+    startMonth: "2026-04",
+    note: "",
+    active: true,
+    ...p,
+  };
+}
+// с апреля по июнь, сегодня 10 июня → апр, май, июнь (5-е уже наступило)
+const due1 = dueRecurringOperations([rule({})], new Set(), "2026-06", "2026-06-10");
+eq(due1.map((o) => o.id), ["rec-r1-2026-04", "rec-r1-2026-05", "rec-r1-2026-06"], "генерация апр–июн");
+eq([due1[0].date, due1[0].amount, due1[0].recurringId], ["2026-04-05", 20000, "r1"], "поля сгенерированной операции");
+
+// если 5-е ещё не наступило в текущем месяце — июнь не создаём
+const due2 = dueRecurringOperations([rule({})], new Set(), "2026-06", "2026-06-03");
+eq(due2.map((o) => o.id), ["rec-r1-2026-04", "rec-r1-2026-05"], "будущая дата месяца пропускается");
+
+// уже существующие/удалённые id не пересоздаются
+const due3 = dueRecurringOperations([rule({})], new Set(["rec-r1-2026-04", "rec-r1-2026-05"]), "2026-06", "2026-06-10");
+eq(due3.map((o) => o.id), ["rec-r1-2026-06"], "без дублей по существующим id");
+
+// выключенное/удалённое правило ничего не создаёт
+eq(dueRecurringOperations([rule({ active: false })], new Set(), "2026-06", "2026-06-10").length, 0, "выключенное правило");
+eq(dueRecurringOperations([rule({ deleted: true })], new Set(), "2026-06", "2026-06-10").length, 0, "удалённое правило");
+
+// обрезка числа под короткий месяц (31 → 28 февраля)
+const dueFeb = dueRecurringOperations([rule({ dayOfMonth: 31, startMonth: "2026-02" })], new Set(), "2026-02", "2026-02-28");
+eq(dueFeb[0].date, "2026-02-28", "31-е число обрезано до конца февраля");
 
 // ---- итог ----
 console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);

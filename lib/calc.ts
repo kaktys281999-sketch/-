@@ -1,8 +1,68 @@
 // Чистые денежные вычисления (без React) — чтобы их можно было покрыть тестами.
 // store.tsx реэкспортирует всё отсюда, поэтому существующие импорты не меняются.
-import { AppState, Operation, Debt, Credit } from "./types";
+import { AppState, Operation, Debt, Credit, RecurringRule } from "./types";
 import { getCategorySign } from "./categories";
 import { monthKeyFromISO } from "./format";
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+// Список месяцев «YYYY-MM» от start до end включительно (с предохранителем)
+function monthsRange(start: string, end: string): string[] {
+  if (!start || start > end) return [];
+  const res: string[] = [];
+  let [y, m] = start.split("-").map(Number);
+  const [ey, em] = end.split("-").map(Number);
+  let guard = 0;
+  while ((y < ey || (y === ey && m <= em)) && guard < 600) {
+    res.push(`${y}-${pad2(m)}`);
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+    guard++;
+  }
+  return res;
+}
+
+function lastDayOfMonth(month: string): number {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(y, m, 0).getDate();
+}
+
+// Какие операции по регулярным правилам нужно создать.
+// id операции детерминированный (`rec-<rule>-<month>`) — это исключает дубли
+// при повторной генерации и между устройствами при синхронизации.
+export function dueRecurringOperations(
+  rules: RecurringRule[],
+  existingIds: Set<string>,
+  currentMonth: string,
+  today: string
+): Operation[] {
+  const out: Operation[] = [];
+  for (const r of rules) {
+    if (r.deleted || r.active === false || !r.startMonth || !r.category) continue;
+    for (const month of monthsRange(r.startMonth, currentMonth)) {
+      const id = `rec-${r.id}-${month}`;
+      if (existingIds.has(id)) continue; // уже создана или удалена (надгробие)
+      const day = Math.min(Math.max(1, r.dayOfMonth || 1), lastDayOfMonth(month));
+      const date = `${month}-${pad2(day)}`;
+      if (month === currentMonth && date > today) continue; // ещё не наступило
+      out.push({
+        id,
+        date,
+        type: r.type,
+        category: r.category,
+        amount: r.amount,
+        accountId: r.accountId,
+        note: r.note ?? "",
+        recurringId: r.id,
+        updatedAt: 0,
+      });
+    }
+  }
+  return out;
+}
 
 // Дельта операции для баланса счёта
 export function operationDelta(op: Operation): number {
