@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Operation, OpType } from "@/lib/types";
 import { TYPES, getTypeDef } from "@/lib/categories";
 import { useStore } from "@/lib/store";
@@ -29,16 +29,29 @@ export interface OperationDraft {
   note: string;
 }
 
+// Дефолт новой операции: расход «Продукты» — самое частое действие
+const DEFAULT_TYPE: OpType = "expense_personal";
+
 function emptyDraft(defaultAccount: string): OperationDraft {
-  const firstType = TYPES[0];
+  const def = getTypeDef(DEFAULT_TYPE);
   return {
     date: todayISO(),
-    type: firstType.type,
-    category: firstType.categories[0].name,
+    type: def.type,
+    category: def.categories[0].name, // «Продукты / еда / вода»
     amount: "",
     accountId: defaultAccount,
     note: "",
   };
+}
+
+// Дата «вчера» в ISO
+function yesterdayISO(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const y = d.getFullYear();
+  const m = (d.getMonth() + 1).toString().padStart(2, "0");
+  const day = d.getDate().toString().padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export function OperationForm({
@@ -59,7 +72,24 @@ export function OperationForm({
   onDraftChange?: (draft: Omit<Operation, "id">) => void;
 }) {
   const { state } = useStore();
-  const defaultAccount = state.accounts[0]?.id ?? "";
+  // Счёт по умолчанию — самый используемый в операциях (иначе первый)
+  const defaultAccount = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const o of state.operations) {
+      if (o.deleted) continue;
+      counts.set(o.accountId, (counts.get(o.accountId) ?? 0) + 1);
+    }
+    let best = state.accounts[0]?.id ?? "";
+    let max = -1;
+    for (const a of state.accounts) {
+      const c = counts.get(a.id) ?? 0;
+      if (c > max) {
+        max = c;
+        best = a.id;
+      }
+    }
+    return best;
+  }, [state.operations, state.accounts]);
 
   const [draft, setDraft] = useState<OperationDraft>(() => {
     const src = initial ?? prefill;
@@ -214,14 +244,28 @@ export function OperationForm({
         </div>
       </div>
 
-      <div className="flex gap-3">
-        <div className="flex-1">
-          <label className={labelCls}>Дата</label>
+      <div>
+        <label className={labelCls}>Дата</label>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setDraft((d) => ({ ...d, date: todayISO() }))}
+            className={chipCls(draft.date === todayISO())}
+          >
+            Сегодня
+          </button>
+          <button
+            type="button"
+            onClick={() => setDraft((d) => ({ ...d, date: yesterdayISO() }))}
+            className={chipCls(draft.date === yesterdayISO())}
+          >
+            Вчера
+          </button>
           <input
             type="date"
             value={draft.date}
             onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))}
-            className={fieldCls}
+            className={`${fieldCls} flex-1`}
             required
           />
         </div>
