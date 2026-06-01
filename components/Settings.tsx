@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import { useStore, currentBalance } from "@/lib/store";
 import { Theme, getTheme, setTheme, DEFAULT_THEME } from "@/lib/theme";
-import { operationsToCSV, downloadFile } from "@/lib/export";
+import {
+  operationsToCSV,
+  debtsToCSV,
+  creditsToCSV,
+  downloadFile,
+} from "@/lib/export";
 import { TYPES } from "@/lib/categories";
 import { Card, NumberInput } from "./ui";
 import { RecurringSettings } from "./RecurringSettings";
@@ -135,7 +140,7 @@ export function Settings() {
             onClick={() => {
               const today = new Date().toISOString().slice(0, 10);
               downloadFile(
-                `финансы-${today}.csv`,
+                `финансы-операции-${today}.csv`,
                 operationsToCSV(state),
                 "text/csv;charset=utf-8"
               );
@@ -143,6 +148,34 @@ export function Settings() {
             className="w-full py-3.5 text-center text-[17px] font-medium text-brand"
           >
             Скачать операции (CSV)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const today = new Date().toISOString().slice(0, 10);
+              downloadFile(
+                `финансы-долги-${today}.csv`,
+                debtsToCSV(state),
+                "text/csv;charset=utf-8"
+              );
+            }}
+            className="w-full border-t border-[var(--separator)] py-3.5 text-center text-[17px] font-medium text-brand"
+          >
+            Скачать долги (CSV)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const today = new Date().toISOString().slice(0, 10);
+              downloadFile(
+                `финансы-кредиты-${today}.csv`,
+                creditsToCSV(state),
+                "text/csv;charset=utf-8"
+              );
+            }}
+            className="w-full border-t border-[var(--separator)] py-3.5 text-center text-[17px] font-medium text-brand"
+          >
+            Скачать кредиты (CSV)
           </button>
           <button
             type="button"
