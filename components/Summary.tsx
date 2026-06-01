@@ -42,10 +42,10 @@ export function Summary({
   const goalPercent = goal.target > 0 ? (goal.saved / goal.target) * 100 : 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 md:grid md:grid-cols-2 md:items-start md:gap-4 md:space-y-0">
       {/* Реальная позиция — крупно */}
       <div
-        className={`overflow-hidden rounded-2xl p-5 ${
+        className={`overflow-hidden rounded-2xl p-5 md:col-span-2 ${
           position < 0
             ? "bg-red-50 dark:bg-red-950/40"
             : "bg-gradient-to-br from-brand to-[#5417C2] text-white"
@@ -154,10 +154,14 @@ export function Summary({
       </div>
 
       {/* Динамика по месяцам */}
-      <MonthlyTrend state={state} month={month} onSelectMonth={onSelectMonth} />
+      <div className="md:col-span-2">
+        <MonthlyTrend state={state} month={month} onSelectMonth={onSelectMonth} />
+      </div>
 
       {/* Расходы по категориям */}
-      <SpendingBreakdown state={state} month={month} />
+      <div className="md:col-span-2">
+        <SpendingBreakdown state={state} month={month} />
+      </div>
 
       {/* Цель */}
       <div>

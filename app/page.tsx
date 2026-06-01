@@ -56,9 +56,40 @@ export default function Home() {
   const title = TABS.find((t) => t.id === tab)?.label ?? "Финансы";
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col">
-      {/* iOS large title */}
-      <header className="sticky top-0 z-10 bg-[var(--bg)]/80 px-4 pb-1 pt-3 backdrop-blur-xl">
+    <main className="flex min-h-screen flex-col">
+      {/* ===== Десктоп: верхняя панель вкладок ===== */}
+      <header className="sticky top-0 z-20 hidden border-b border-[var(--separator)] bg-[var(--bg)]/80 backdrop-blur-xl md:block">
+        <div className="mx-auto flex h-14 max-w-5xl items-center gap-6 px-6">
+          <span className="text-[19px] font-bold tracking-tight">Финансы</span>
+          <nav className="flex items-center gap-1">
+            {TABS.map(({ id, label, Icon }) => {
+              const active = tab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTab(id)}
+                  className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-medium transition ${
+                    active
+                      ? "bg-brand text-white shadow-sm"
+                      : "text-label-2 hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
+                  }`}
+                >
+                  <Icon className="h-[18px] w-[18px]" />
+                  {label}
+                </button>
+              );
+            })}
+          </nav>
+          <div className="ml-auto flex items-center gap-2">
+            <SaveButton />
+            <SyncBadge />
+          </div>
+        </div>
+      </header>
+
+      {/* ===== Телефон: крупный заголовок iOS ===== */}
+      <header className="sticky top-0 z-10 bg-[var(--bg)]/80 px-4 pb-1 pt-3 backdrop-blur-xl md:hidden">
         <div className="flex items-end justify-between">
           <h1 className="text-[34px] font-bold leading-tight tracking-tight">
             {title}
@@ -70,7 +101,12 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="flex-1 space-y-4 px-4 pb-28 pt-1">
+      <div className="mx-auto w-full max-w-md flex-1 space-y-4 px-4 pb-28 pt-1 md:max-w-5xl md:px-6 md:pb-12 md:pt-6">
+        {/* Десктоп: заголовок раздела */}
+        <h1 className="hidden text-[28px] font-bold leading-tight tracking-tight md:block">
+          {title}
+        </h1>
+
         {showMonthSwitcher && (
           <MonthSwitcher value={month} onChange={setMonth} />
         )}
@@ -84,21 +120,35 @@ export default function Home() {
             />
           )}
           {tab === "add" && (
-            <AddOperation
-              onShowMonth={(m) => {
-                setMonth(m);
-                setTab("operations");
-              }}
-            />
+            <div className="md:mx-auto md:max-w-xl">
+              <AddOperation
+                onShowMonth={(m) => {
+                  setMonth(m);
+                  setTab("operations");
+                }}
+              />
+            </div>
           )}
-          {tab === "operations" && <Operations month={month} />}
-          {tab === "debts" && <Debts />}
-          {tab === "settings" && <Settings />}
+          {tab === "operations" && (
+            <div className="md:mx-auto md:max-w-2xl">
+              <Operations month={month} />
+            </div>
+          )}
+          {tab === "debts" && (
+            <div className="md:mx-auto md:max-w-2xl">
+              <Debts />
+            </div>
+          )}
+          {tab === "settings" && (
+            <div className="md:mx-auto md:max-w-2xl">
+              <Settings />
+            </div>
+          )}
         </div>
       </div>
 
-      {/* iOS tab bar */}
-      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-[var(--separator)] bg-[var(--card)]/80 backdrop-blur-xl">
+      {/* ===== Телефон: нижняя панель вкладок ===== */}
+      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-[var(--separator)] bg-[var(--card)]/80 backdrop-blur-xl md:hidden">
         <div className="mx-auto flex max-w-md px-1 pb-[env(safe-area-inset-bottom)]">
           {TABS.map(({ id, label, Icon }) => {
             const active = tab === id;
