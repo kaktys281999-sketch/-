@@ -11,12 +11,13 @@ import {
   daysUntil,
   relativeDayLabel,
 } from "@/lib/format";
-import { Card, Money, ProgressBar, NumberInput } from "./ui";
+import { Card, Money, ProgressBar, NumberInput, SearchField } from "./ui";
 
 export function Credits() {
   const { state, addCreditPayment } = useStore();
   const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const credits = useMemo(
     () => (state.credits ?? []).filter((c) => !c.deleted),
@@ -25,7 +26,19 @@ export function Credits() {
   const agg = creditInfo(state);
   const open = openId ? credits.find((c) => c.id === openId) ?? null : null;
 
-  const views = useMemo(() => credits.map(creditView), [credits]);
+  const q = query.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!q) return credits;
+    const qNum = q.replace(/\s/g, "");
+    return credits.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.note ?? "").toLowerCase().includes(q) ||
+        String(c.payment).includes(qNum)
+    );
+  }, [credits, q]);
+
+  const views = useMemo(() => filtered.map(creditView), [filtered]);
   const active = views
     .filter((v) => !v.isPaidOff)
     .sort((a, b) => b.remaining - a.remaining);
@@ -70,10 +83,22 @@ export function Credits() {
         Добавить кредит
       </button>
 
+      {credits.length > 2 && (
+        <SearchField value={query} onChange={setQuery} placeholder="Поиск: название, заметка…" />
+      )}
+
       {credits.length === 0 && (
         <Card>
           <p className="py-8 text-center text-[15px] text-label-3">
             Кредитов пока нет
+          </p>
+        </Card>
+      )}
+
+      {q && active.length + paidOff.length === 0 && (
+        <Card>
+          <p className="py-8 text-center text-[15px] text-label-3">
+            Ничего не найдено
           </p>
         </Card>
       )}

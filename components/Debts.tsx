@@ -16,7 +16,7 @@ import {
   daysUntil,
   relativeDayLabel,
 } from "@/lib/format";
-import { Card, Money, ProgressBar } from "./ui";
+import { Card, Money, ProgressBar, SearchField } from "./ui";
 
 const DIR_LABEL: Record<DebtDirection, string> = {
   owed_to_me: "Мне должны",
@@ -27,6 +27,7 @@ export function Debts() {
   const { state } = useStore();
   const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   const debts = useMemo(
     () => (state.debts ?? []).filter((d) => !d.deleted),
@@ -36,10 +37,22 @@ export function Debts() {
 
   const open = openId ? debts.find((d) => d.id === openId) ?? null : null;
 
+  const q = query.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!q) return debts;
+    const qNum = q.replace(/\s/g, "");
+    return debts.filter(
+      (d) =>
+        (d.person ?? "").toLowerCase().includes(q) ||
+        (d.note ?? "").toLowerCase().includes(q) ||
+        String(d.amount).includes(qNum)
+    );
+  }, [debts, q]);
+
   // Группы: активные сверху, погашенные — в архиве
   const groups = useMemo(() => {
-    const active = debts.filter((d) => !isDebtSettled(d));
-    const settled = debts.filter((d) => isDebtSettled(d));
+    const active = filtered.filter((d) => !isDebtSettled(d));
+    const settled = filtered.filter((d) => isDebtSettled(d));
     const sortByOut = (a: Debt, b: Debt) =>
       debtOutstanding(b) - debtOutstanding(a);
     return {
@@ -49,7 +62,7 @@ export function Debts() {
       iOwe: active.filter((d) => d.direction === "i_owe").sort(sortByOut),
       settled: settled.sort((a, b) => (a.date < b.date ? 1 : -1)),
     };
-  }, [debts]);
+  }, [filtered]);
 
   if (adding) {
     return <DebtForm onClose={() => setAdding(false)} />;
@@ -96,10 +109,22 @@ export function Debts() {
         Добавить долг
       </button>
 
+      {debts.length > 2 && (
+        <SearchField value={query} onChange={setQuery} placeholder="Поиск: имя, заметка, сумма…" />
+      )}
+
       {debts.length === 0 && (
         <Card>
           <p className="py-8 text-center text-[15px] text-label-3">
             Долгов пока нет
+          </p>
+        </Card>
+      )}
+
+      {q && groups.owedToMe.length + groups.iOwe.length + groups.settled.length === 0 && (
+        <Card>
+          <p className="py-8 text-center text-[15px] text-label-3">
+            Ничего не найдено
           </p>
         </Card>
       )}
