@@ -1,4 +1,4 @@
-import { AppState, Operation } from "./types";
+import { AppState, Operation, Debt } from "./types";
 
 // Формат данных, которыми приложение обменивается с Google-таблицей
 export interface SyncPayload {
@@ -10,6 +10,7 @@ export interface SyncPayload {
   goal: AppState["goal"];
   budgets?: AppState["budgets"];
   templates?: AppState["templates"];
+  debts?: AppState["debts"];
 }
 
 export function toPayload(s: AppState): SyncPayload {
@@ -22,6 +23,7 @@ export function toPayload(s: AppState): SyncPayload {
     goal: s.goal,
     budgets: s.budgets ?? {},
     templates: s.templates ?? [],
+    debts: s.debts ?? [],
   };
 }
 
@@ -33,6 +35,7 @@ export function fromPayload(p: SyncPayload): AppState {
     goal: p.goal,
     budgets: p.budgets ?? {},
     templates: p.templates ?? [],
+    debts: p.debts ?? [],
     updatedAt: p.updatedAt ?? 0,
   };
 }
@@ -56,6 +59,16 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
   }
   const operations = Array.from(byId.values());
 
+  // Долги сливаем так же по id: побеждает более свежая версия (по updatedAt)
+  const debtById = new Map<string, Debt>();
+  for (const d of local.debts ?? []) debtById.set(d.id, d);
+  for (const d of remote.debts ?? []) {
+    const cur = debtById.get(d.id);
+    if (!cur) debtById.set(d.id, d);
+    else debtById.set(d.id, (d.updatedAt ?? 0) >= (cur.updatedAt ?? 0) ? d : cur);
+  }
+  const debts = Array.from(debtById.values());
+
   const remoteNewer = (remote.updatedAt ?? 0) > (local.updatedAt ?? 0);
   const base = remoteNewer ? remote : local;
 
@@ -66,6 +79,7 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
     budgets: base.budgets ?? {},
     templates: base.templates ?? [],
     operations,
+    debts,
     updatedAt: Math.max(local.updatedAt ?? 0, remote.updatedAt ?? 0),
   };
 }

@@ -53,6 +53,32 @@ export interface Template {
   note: string;
 }
 
+// Направление долга
+export type DebtDirection = "owed_to_me" | "i_owe"; // мне должны / я должен
+
+// Частичный возврат по долгу
+export interface DebtPayment {
+  id: string;
+  date: string; // ISO yyyy-mm-dd
+  amount: number; // всегда положительное
+  accountId: string; // на какой/с какого счёта прошёл возврат
+}
+
+// Долг (человеку или от человека) — отдельная сущность с историей возвратов
+export interface Debt {
+  id: string;
+  direction: DebtDirection;
+  person: string; // имя
+  amount: number; // изначальная сумма, всегда положительная
+  date: string; // дата возникновения (ISO)
+  accountId: string; // счёт, с которого ушло / на который пришло
+  note: string;
+  payments: DebtPayment[]; // частичные возвраты
+  // Метаданные для слияния при синхронизации
+  updatedAt?: number;
+  deleted?: boolean; // надгробие
+}
+
 // Всё состояние приложения
 export interface AppState {
   accounts: Account[];
@@ -63,6 +89,8 @@ export interface AppState {
   budgets?: Budgets;
   // шаблоны частых операций
   templates?: Template[];
+  // долги (мне должны / я должен)
+  debts?: Debt[];
   // момент последнего изменения (мс) — для разрешения конфликтов синхронизации
   updatedAt: number;
 }

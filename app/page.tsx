@@ -6,16 +6,18 @@ import { MonthSwitcher } from "@/components/MonthSwitcher";
 import { Summary } from "@/components/Summary";
 import { AddOperation } from "@/components/AddOperation";
 import { Operations } from "@/components/Operations";
+import { Debts } from "@/components/Debts";
 import { Settings } from "@/components/Settings";
 import { SyncBadge } from "@/components/SyncBadge";
 import {
   IconSummary,
   IconAdd,
   IconList,
+  IconDebts,
   IconSettings,
 } from "@/components/icons";
 
-type Tab = "summary" | "add" | "operations" | "settings";
+type Tab = "summary" | "add" | "operations" | "debts" | "settings";
 
 const TABS: {
   id: Tab;
@@ -25,6 +27,7 @@ const TABS: {
   { id: "summary", label: "Сводка", Icon: IconSummary },
   { id: "add", label: "Добавить", Icon: IconAdd },
   { id: "operations", label: "Операции", Icon: IconList },
+  { id: "debts", label: "Долги", Icon: IconDebts },
   { id: "settings", label: "Настройки", Icon: IconSettings },
 ];
 
@@ -72,7 +75,11 @@ export default function Home() {
 
         <div key={tab} className="animate-fadein space-y-4">
           {tab === "summary" && (
-            <Summary month={month} onSelectMonth={setMonth} />
+            <Summary
+              month={month}
+              onSelectMonth={setMonth}
+              onOpenDebts={() => setTab("debts")}
+            />
           )}
           {tab === "add" && (
             <AddOperation
@@ -83,6 +90,7 @@ export default function Home() {
             />
           )}
           {tab === "operations" && <Operations month={month} />}
+          {tab === "debts" && <Debts />}
           {tab === "settings" && <Settings />}
         </div>
       </div>

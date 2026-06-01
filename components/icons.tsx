@@ -34,6 +34,17 @@ export function IconList({ className = base }: IconProps) {
   );
 }
 
+export function IconDebts({ className = base }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 7H6.5a3.5 3.5 0 0 0 0 7H7" />
+      <path d="M14 4l3 3-3 3" />
+      <path d="M7 17h10.5a3.5 3.5 0 0 0 0-7H17" />
+      <path d="M10 20l-3-3 3-3" />
+    </svg>
+  );
+}
+
 export function IconSettings({ className = base }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -16,6 +16,8 @@ import {
   CreditConfig,
   Goal,
   Template,
+  Debt,
+  DebtPayment,
 } from "./types";
 import { getCategorySign, CREDIT_PAYMENT_CATEGORY } from "./categories";
 import { monthKeyFromISO, todayISO, generatePaymentDates } from "./format";
@@ -55,6 +57,7 @@ const INITIAL_STATE: AppState = {
   },
   budgets: {},
   templates: [],
+  debts: [],
   updatedAt: 0,
 };
 
@@ -78,6 +81,13 @@ interface StoreContextValue {
   setBudget: (category: string, limit: number) => void;
   addTemplate: (t: Omit<Template, "id">) => void;
   deleteTemplate: (id: string) => void;
+  // Долги
+  addDebt: (d: Omit<Debt, "id" | "payments">) => void;
+  updateDebt: (id: string, patch: Partial<Omit<Debt, "id">>) => void;
+  deleteDebt: (id: string) => void;
+  addDebtPayment: (debtId: string, payment: Omit<DebtPayment, "id">) => void;
+  deleteDebtPayment: (debtId: string, paymentId: string) => void;
+  settleDebt: (debtId: string, accountId: string) => void;
   resetAll: () => void;
   // Синхронизация с Google-таблицей
   sync: SyncConfig;
@@ -103,6 +113,7 @@ function loadState(): AppState {
       goal: { ...INITIAL_STATE.goal, ...parsed.goal },
       budgets: parsed.budgets ?? {},
       templates: parsed.templates ?? [],
+      debts: parsed.debts ?? [],
       updatedAt: parsed.updatedAt ?? 0,
     };
   } catch {
@@ -136,6 +147,19 @@ export function operationDelta(op: Operation): number {
     return -op.amount;
   // credit_loan — по знаку категории
   return getCategorySign(op.type, op.category) * op.amount;
+}
+
+// Влияние долга на баланс конкретного счёта.
+// «Мне должны»: дал в долг → деньги ушли (−), возврат → пришли (+).
+// «Я должен»: взял в долг → деньги пришли (+), возврат → ушли (−).
+export function debtAccountDelta(debt: Debt, accountId: string): number {
+  const sign = debt.direction === "owed_to_me" ? -1 : 1; // эффект исходной выдачи/получения
+  let delta = 0;
+  if (debt.accountId === accountId) delta += sign * debt.amount;
+  for (const p of debt.payments) {
+    if (p.accountId === accountId) delta += -sign * p.amount; // возврат обратен исходному
+  }
+  return delta;
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -366,9 +390,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // Подбираем base так, чтобы текущий стал равен введённому значению.
     const setAccountBalance = (id: string, currentBalance: number) => {
       setState((s) => {
-        const deltaSum = s.operations
+        const opDelta = s.operations
           .filter((o) => o.accountId === id && !o.deleted)
           .reduce((sum, o) => sum + operationDelta(o), 0);
+        const debtDelta = (s.debts ?? [])
+          .filter((d) => !d.deleted)
+          .reduce((sum, d) => sum + debtAccountDelta(d, id), 0);
+        const deltaSum = opDelta + debtDelta;
         return {
           ...s,
           ...touch({
@@ -425,6 +453,108 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }));
     };
 
+    // ===== Долги =====
+    const addDebt = (d: Omit<Debt, "id" | "payments">) => {
+      const now = Date.now();
+      setState((s) => ({
+        ...s,
+        ...touch({
+          debts: [
+            ...(s.debts ?? []),
+            { ...d, id: uid(), payments: [], updatedAt: now },
+          ],
+        }),
+      }));
+    };
+
+    const updateDebt = (id: string, patch: Partial<Omit<Debt, "id">>) => {
+      const now = Date.now();
+      setState((s) => ({
+        ...s,
+        ...touch({
+          debts: (s.debts ?? []).map((d) =>
+            d.id === id ? { ...d, ...patch, updatedAt: now } : d
+          ),
+        }),
+      }));
+    };
+
+    // Удаление долга — надгробие, чтобы не воскресал при синхронизации
+    const deleteDebt = (id: string) => {
+      const now = Date.now();
+      setState((s) => ({
+        ...s,
+        ...touch({
+          debts: (s.debts ?? []).map((d) =>
+            d.id === id ? { ...d, deleted: true, updatedAt: now } : d
+          ),
+        }),
+      }));
+    };
+
+    const addDebtPayment = (
+      debtId: string,
+      payment: Omit<DebtPayment, "id">
+    ) => {
+      const now = Date.now();
+      setState((s) => ({
+        ...s,
+        ...touch({
+          debts: (s.debts ?? []).map((d) =>
+            d.id === debtId
+              ? {
+                  ...d,
+                  payments: [...d.payments, { ...payment, id: uid() }],
+                  updatedAt: now,
+                }
+              : d
+          ),
+        }),
+      }));
+    };
+
+    const deleteDebtPayment = (debtId: string, paymentId: string) => {
+      const now = Date.now();
+      setState((s) => ({
+        ...s,
+        ...touch({
+          debts: (s.debts ?? []).map((d) =>
+            d.id === debtId
+              ? {
+                  ...d,
+                  payments: d.payments.filter((p) => p.id !== paymentId),
+                  updatedAt: now,
+                }
+              : d
+          ),
+        }),
+      }));
+    };
+
+    // Погасить полностью — добавляем возврат на остаток сегодняшней датой
+    const settleDebt = (debtId: string, accountId: string) => {
+      const now = Date.now();
+      setState((s) => ({
+        ...s,
+        ...touch({
+          debts: (s.debts ?? []).map((d) => {
+            if (d.id !== debtId) return d;
+            const paid = d.payments.reduce((sum, p) => sum + p.amount, 0);
+            const rest = d.amount - paid;
+            if (rest <= 0) return d;
+            return {
+              ...d,
+              payments: [
+                ...d.payments,
+                { id: uid(), date: todayISO(), amount: rest, accountId },
+              ],
+              updatedAt: now,
+            };
+          }),
+        }),
+      }));
+    };
+
     const resetAll = () => {
       setState((s) => {
         const now = Date.now();
@@ -435,7 +565,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           deleted: true,
           updatedAt: now,
         }));
-        return { ...INITIAL_STATE, operations: tombstones, updatedAt: now };
+        const debtTombstones = (s.debts ?? []).map((d) => ({
+          ...d,
+          deleted: true,
+          updatedAt: now,
+        }));
+        return {
+          ...INITIAL_STATE,
+          operations: tombstones,
+          debts: debtTombstones,
+          updatedAt: now,
+        };
       });
     };
 
@@ -455,6 +595,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setBudget,
       addTemplate,
       deleteTemplate,
+      addDebt,
+      updateDebt,
+      deleteDebt,
+      addDebtPayment,
+      deleteDebtPayment,
+      settleDebt,
       resetAll,
       sync,
       syncState,
@@ -481,10 +627,13 @@ export function useStore(): StoreContextValue {
 export function currentBalance(state: AppState, accountId: string): number {
   const acc = state.accounts.find((a) => a.id === accountId);
   if (!acc) return 0;
-  const deltaSum = state.operations
+  const opDelta = state.operations
     .filter((o) => o.accountId === accountId && !o.deleted)
     .reduce((sum, o) => sum + operationDelta(o), 0);
-  return acc.baseBalance + deltaSum;
+  const debtDelta = (state.debts ?? [])
+    .filter((d) => !d.deleted)
+    .reduce((sum, d) => sum + debtAccountDelta(d, accountId), 0);
+  return acc.baseBalance + opDelta + debtDelta;
 }
 
 // На руках = сумма балансов всех счетов
@@ -558,7 +707,44 @@ export function creditInfo(state: AppState): CreditInfo {
   };
 }
 
-// Реальная позиция = на руках − остаток долга по кредиту
+// ===== Долги =====
+
+// Сколько осталось вернуть по долгу (не уходит в минус)
+export function debtOutstanding(d: Debt): number {
+  const paid = d.payments.reduce((sum, p) => sum + p.amount, 0);
+  return Math.max(0, d.amount - paid);
+}
+
+export function debtPaidTotal(d: Debt): number {
+  return d.payments.reduce((sum, p) => sum + p.amount, 0);
+}
+
+export function isDebtSettled(d: Debt): boolean {
+  return debtPaidTotal(d) >= d.amount;
+}
+
+export interface DebtsSummary {
+  owedToMe: number; // мне должны (остаток)
+  iOwe: number; // я должен (остаток)
+  net: number; // owedToMe − iOwe
+}
+
+export function debtsSummary(state: AppState): DebtsSummary {
+  let owedToMe = 0;
+  let iOwe = 0;
+  for (const d of state.debts ?? []) {
+    if (d.deleted) continue;
+    const out = debtOutstanding(d);
+    if (d.direction === "owed_to_me") owedToMe += out;
+    else iOwe += out;
+  }
+  return { owedToMe, iOwe, net: owedToMe - iOwe };
+}
+
+// Реальная позиция = на руках − остаток по кредиту + что мне вернут − что я должен
 export function realPosition(state: AppState): number {
-  return totalOnHand(state) - creditInfo(state).remaining;
+  const debts = debtsSummary(state);
+  return (
+    totalOnHand(state) - creditInfo(state).remaining + debts.owedToMe - debts.iOwe
+  );
 }

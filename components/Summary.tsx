@@ -7,6 +7,7 @@ import {
   creditInfo,
   realPosition,
   currentBalance,
+  debtsSummary,
 } from "@/lib/store";
 import { formatMoney, formatDateLong, monthLabel } from "@/lib/format";
 import { Card, Money, ProgressBar } from "./ui";
@@ -23,15 +24,19 @@ const ACCOUNT_COLORS: Record<string, string> = {
 export function Summary({
   month,
   onSelectMonth,
+  onOpenDebts,
 }: {
   month: string;
   onSelectMonth?: (key: string) => void;
+  onOpenDebts?: () => void;
 }) {
   const { state } = useStore();
   const onHand = totalOnHand(state);
   const summary = monthSummary(state, month);
   const credit = creditInfo(state);
   const position = realPosition(state);
+  const debts = debtsSummary(state);
+  const hasDebts = debts.owedToMe > 0 || debts.iOwe > 0;
   const goal = state.goal;
   const goalRemaining = goal.target - goal.saved;
   const goalPercent = goal.target > 0 ? (goal.saved / goal.target) * 100 : 0;
@@ -65,7 +70,7 @@ export function Summary({
             position < 0 ? "text-red-500 dark:text-red-400" : "text-white/55"
           }`}
         >
-          На руках − остаток долга по кредиту
+          С учётом кредита и долгов
         </div>
       </div>
 
@@ -91,6 +96,35 @@ export function Summary({
           </div>
         ))}
       </Card>
+
+      {/* Долги */}
+      {hasDebts && (
+        <div>
+          <SectionTitle>Долги</SectionTitle>
+          <Card className="!p-0">
+            <button
+              type="button"
+              onClick={onOpenDebts}
+              className="flex w-full items-center justify-between px-4 py-3 text-left text-[15px] active:bg-black/[0.03] dark:active:bg-white/5"
+            >
+              <span className="text-label-2">Мне должны</span>
+              <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                {formatMoney(debts.owedToMe)}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenDebts}
+              className="flex w-full items-center justify-between border-t border-[var(--separator)] px-4 py-3 text-left text-[15px] active:bg-black/[0.03] dark:active:bg-white/5"
+            >
+              <span className="text-label-2">Я должен</span>
+              <span className="font-medium text-red-600 dark:text-red-400">
+                {formatMoney(debts.iOwe)}
+              </span>
+            </button>
+          </Card>
+        </div>
+      )}
 
       {/* За месяц */}
       <div>
