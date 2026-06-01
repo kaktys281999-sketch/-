@@ -42,6 +42,17 @@ export interface Goal {
 // Месячные лимиты по категориям расходов: { "Продукты / еда / вода": 15000 }
 export type Budgets = Record<string, number>;
 
+// Шаблон частой операции (без даты — подставляется сегодня при использовании)
+export interface Template {
+  id: string;
+  title: string; // короткое название кнопки
+  type: OpType;
+  category: string;
+  amount: number; // 0 — спросить при добавлении
+  accountId: string;
+  note: string;
+}
+
 // Всё состояние приложения
 export interface AppState {
   accounts: Account[];
@@ -50,6 +61,8 @@ export interface AppState {
   goal: Goal;
   // месячные лимиты расходов по категориям (необязательно для старых данных)
   budgets?: Budgets;
+  // шаблоны частых операций
+  templates?: Template[];
   // момент последнего изменения (мс) — для разрешения конфликтов синхронизации
   updatedAt: number;
 }

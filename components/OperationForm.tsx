@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Operation, OpType } from "@/lib/types";
 import { TYPES, getTypeDef } from "@/lib/categories";
 import { useStore } from "@/lib/store";
@@ -43,32 +43,56 @@ function emptyDraft(defaultAccount: string): OperationDraft {
 
 export function OperationForm({
   initial,
+  prefill,
   submitLabel,
   onSubmit,
   onCancel,
+  onDraftChange,
 }: {
   initial?: Operation;
+  // частичное заполнение (например, из шаблона) — без даты
+  prefill?: Partial<Omit<Operation, "id">>;
   submitLabel: string;
   onSubmit: (op: Omit<Operation, "id">) => void;
   onCancel?: () => void;
+  // текущий черновик наружу — чтобы сохранить как шаблон
+  onDraftChange?: (draft: Omit<Operation, "id">) => void;
 }) {
   const { state } = useStore();
   const defaultAccount = state.accounts[0]?.id ?? "";
 
-  const [draft, setDraft] = useState<OperationDraft>(() =>
-    initial
-      ? {
-          date: initial.date,
-          type: initial.type,
-          category: initial.category,
-          amount: String(initial.amount),
-          accountId: initial.accountId,
-          note: initial.note,
-        }
-      : emptyDraft(defaultAccount)
-  );
+  const [draft, setDraft] = useState<OperationDraft>(() => {
+    const src = initial ?? prefill;
+    if (src) {
+      return {
+        date: (initial?.date ?? todayISO()),
+        type: src.type ?? TYPES[0].type,
+        category: src.category ?? getTypeDef(src.type ?? TYPES[0].type).categories[0].name,
+        amount: src.amount ? String(src.amount) : "",
+        accountId: src.accountId ?? defaultAccount,
+        note: src.note ?? "",
+      };
+    }
+    return emptyDraft(defaultAccount);
+  });
 
   const typeDef = getTypeDef(draft.type);
+
+  // Отдаём текущий черновик наружу (для «сохранить как шаблон»)
+  useEffect(() => {
+    if (!onDraftChange) return;
+    const amount = Math.abs(
+      Number(draft.amount.replace(/\s/g, "").replace(",", "."))
+    );
+    onDraftChange({
+      date: draft.date,
+      type: draft.type,
+      category: draft.category,
+      amount: Number.isNaN(amount) ? 0 : amount,
+      accountId: draft.accountId,
+      note: draft.note.trim(),
+    });
+  }, [draft, onDraftChange]);
 
   function handleTypeChange(type: OpType) {
     const def = getTypeDef(type);

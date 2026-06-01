@@ -9,7 +9,14 @@ import {
   useState,
   ReactNode,
 } from "react";
-import { AppState, Operation, Account, CreditConfig, Goal } from "./types";
+import {
+  AppState,
+  Operation,
+  Account,
+  CreditConfig,
+  Goal,
+  Template,
+} from "./types";
 import { getCategorySign, CREDIT_PAYMENT_CATEGORY } from "./categories";
 import { monthKeyFromISO, todayISO } from "./format";
 import {
@@ -47,6 +54,7 @@ const INITIAL_STATE: AppState = {
     saved: 0,
   },
   budgets: {},
+  templates: [],
   updatedAt: 0,
 };
 
@@ -68,6 +76,8 @@ interface StoreContextValue {
   updateGoal: (goal: Partial<Goal>) => void;
   updateCredit: (credit: Partial<CreditConfig>) => void;
   setBudget: (category: string, limit: number) => void;
+  addTemplate: (t: Omit<Template, "id">) => void;
+  deleteTemplate: (id: string) => void;
   resetAll: () => void;
   // Синхронизация с Google-таблицей
   sync: SyncConfig;
@@ -92,6 +102,7 @@ function loadState(): AppState {
       credit: { ...INITIAL_STATE.credit, ...parsed.credit },
       goal: { ...INITIAL_STATE.goal, ...parsed.goal },
       budgets: parsed.budgets ?? {},
+      templates: parsed.templates ?? [],
       updatedAt: parsed.updatedAt ?? 0,
     };
   } catch {
@@ -343,6 +354,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
     };
 
+    const addTemplate = (t: Omit<Template, "id">) => {
+      setState((s) => ({
+        ...s,
+        ...touch({ templates: [...(s.templates ?? []), { ...t, id: uid() }] }),
+      }));
+    };
+
+    const deleteTemplate = (id: string) => {
+      setState((s) => ({
+        ...s,
+        ...touch({
+          templates: (s.templates ?? []).filter((t) => t.id !== id),
+        }),
+      }));
+    };
+
     const resetAll = () => {
       setState({ ...INITIAL_STATE, updatedAt: Date.now() });
     };
@@ -361,6 +388,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updateGoal,
       updateCredit,
       setBudget,
+      addTemplate,
+      deleteTemplate,
       resetAll,
       sync,
       syncState,
