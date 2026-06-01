@@ -25,6 +25,7 @@ export function Operations({ month }: { month: string }) {
   const { state, updateOperation, deleteOperation, restoreOperation } =
     useStore();
   const [filter, setFilter] = useState<string>("");
+  const [query, setQuery] = useState<string>("");
   const [editing, setEditing] = useState<Operation | null>(null);
   // id недавно удалённой операции — для снэкбара «Отменить»
   const [undoId, setUndoId] = useState<string | null>(null);
@@ -42,6 +43,8 @@ export function Operations({ month }: { month: string }) {
     setUndoId(id);
   }
 
+  const q = query.trim().toLowerCase();
+
   // Операции месяца (без учёта фильтра) — для расчёта доступных категорий
   const monthAll = useMemo(
     () =>
@@ -51,24 +54,42 @@ export function Operations({ month }: { month: string }) {
     [state.operations, month]
   );
 
-  // Категории, которые реально встречаются в этом месяце (для чипов)
+  // При поиске ищем по всем месяцам, иначе — только текущий
+  const baseOps = useMemo(
+    () => (q ? state.operations.filter((o) => !o.deleted) : monthAll),
+    [q, state.operations, monthAll]
+  );
+
+  // Категории, которые реально встречаются (для чипов)
   const presentCategories = useMemo(() => {
     const seen = new Set<string>();
     const order: string[] = [];
-    for (const o of monthAll) {
+    for (const o of baseOps) {
       if (!seen.has(o.category)) {
         seen.add(o.category);
         order.push(o.category);
       }
     }
     return order;
-  }, [monthAll]);
+  }, [baseOps]);
 
   const monthOps = useMemo(() => {
-    return monthAll
+    const accName = (id: string) =>
+      state.accounts.find((a) => a.id === id)?.name.toLowerCase() ?? "";
+    const qNum = q.replace(/\s/g, "");
+    return baseOps
       .filter((o) => (filter ? o.category === filter : true))
+      .filter((o) => {
+        if (!q) return true;
+        return (
+          o.category.toLowerCase().includes(q) ||
+          (o.note ?? "").toLowerCase().includes(q) ||
+          accName(o.accountId).includes(q) ||
+          String(o.amount).includes(qNum)
+        );
+      })
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [monthAll, filter]);
+  }, [baseOps, filter, q, state.accounts]);
 
   // Группировка по дням
   const byDay = useMemo(() => {
@@ -123,7 +144,44 @@ export function Operations({ month }: { month: string }) {
 
   return (
     <div className="space-y-3">
-      {/* Чипы-фильтры по категориям месяца */}
+      {/* Поиск */}
+      <div className="relative">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-label-3"
+        >
+          <circle cx="11" cy="11" r="7" />
+          <path d="M21 21l-4-4" strokeLinecap="round" />
+        </svg>
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск: категория, заметка, сумма…"
+          className="w-full rounded-xl bg-black/[0.04] py-2.5 pl-9 pr-9 text-[15px] outline-none focus:ring-2 focus:ring-brand/40 dark:bg-white/[0.06] dark:text-slate-100"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => setQuery("")}
+            aria-label="Очистить"
+            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-label-3 active:bg-black/10 dark:active:bg-white/10"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {q && (
+        <div className="px-1 text-[13px] text-label-2">
+          Поиск по всем месяцам · найдено: {monthOps.length}
+        </div>
+      )}
+
+      {/* Чипы-фильтры по категориям */}
       {presentCategories.length > 0 && (
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <Chip active={filter === ""} onClick={() => setFilter("")}>
@@ -140,7 +198,7 @@ export function Operations({ month }: { month: string }) {
       {byDay.length === 0 && (
         <Card>
           <p className="py-8 text-center text-[15px] text-label-3">
-            Операций за этот месяц нет
+            {q ? "Ничего не найдено" : "Операций за этот месяц нет"}
           </p>
         </Card>
       )}
