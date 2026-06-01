@@ -21,7 +21,6 @@ import {
   pull,
   push,
 } from "./sync";
-import { applySeed, SEED_FLAG } from "./seed";
 
 const STORAGE_KEY = "finance-tracker-v1";
 const SYNC_KEY = "finance-tracker-sync-v1";
@@ -80,23 +79,16 @@ function loadState(): AppState {
   if (typeof window === "undefined") return INITIAL_STATE;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Partial<AppState>) : null;
-    let state: AppState = parsed
-      ? {
-          accounts: parsed.accounts ?? INITIAL_STATE.accounts,
-          operations: parsed.operations ?? INITIAL_STATE.operations,
-          credit: { ...INITIAL_STATE.credit, ...parsed.credit },
-          goal: { ...INITIAL_STATE.goal, ...parsed.goal },
-          updatedAt: parsed.updatedAt ?? 0,
-        }
-      : INITIAL_STATE;
-
-    // Одноразовый импорт истории из Excel-трекера (на этом устройстве)
-    if (!window.localStorage.getItem(SEED_FLAG)) {
-      state = applySeed(state);
-      window.localStorage.setItem(SEED_FLAG, "1");
-    }
-    return state;
+    if (!raw) return INITIAL_STATE;
+    const parsed = JSON.parse(raw) as Partial<AppState>;
+    // Мягкое слияние, чтобы новые поля не ломали старые данные
+    return {
+      accounts: parsed.accounts ?? INITIAL_STATE.accounts,
+      operations: parsed.operations ?? INITIAL_STATE.operations,
+      credit: { ...INITIAL_STATE.credit, ...parsed.credit },
+      goal: { ...INITIAL_STATE.goal, ...parsed.goal },
+      updatedAt: parsed.updatedAt ?? 0,
+    };
   } catch {
     return INITIAL_STATE;
   }
