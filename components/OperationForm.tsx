@@ -5,6 +5,7 @@ import { Operation, OpType } from "@/lib/types";
 import { TYPES, getTypeDef } from "@/lib/categories";
 import { useStore } from "@/lib/store";
 import { todayISO } from "@/lib/format";
+import { getLastUsed, setLastUsed } from "@/lib/lastUsed";
 
 // Цвета банков для точек у чипов счетов
 const ACCOUNT_COLORS: Record<string, string> = {
@@ -54,6 +55,17 @@ function yesterdayISO(): string {
   return `${y}-${m}-${day}`;
 }
 
+// Отображение суммы с разделителем тысяч во время ввода («15 000», «1 200,5»)
+function formatAmountInput(raw: string): string {
+  if (!raw) return "";
+  const [intPart, decPart] = raw.replace(/\s/g, "").replace(",", ".").split(".");
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  return decPart !== undefined ? `${grouped},${decPart}` : grouped;
+}
+
+// Быстрые добавки к сумме
+const QUICK_AMOUNTS = [100, 500, 1000];
+
 export function OperationForm({
   initial,
   prefill,
@@ -91,6 +103,28 @@ export function OperationForm({
     return best;
   }, [state.operations, state.accounts]);
 
+  // Свежий черновик: подставляем последний использованный набор,
+  // иначе — дефолт «Расход / Продукты». Счёт берём из памяти, если он есть.
+  const makeFresh = (): OperationDraft => {
+    const last = getLastUsed();
+    if (!last) return emptyDraft(defaultAccount);
+    const def = getTypeDef(last.type);
+    const category = def.categories.some((c) => c.name === last.category)
+      ? last.category
+      : def.categories[0].name;
+    const accountId = state.accounts.some((a) => a.id === last.accountId)
+      ? last.accountId
+      : defaultAccount;
+    return {
+      date: todayISO(),
+      type: last.type,
+      category,
+      amount: "",
+      accountId,
+      note: "",
+    };
+  };
+
   const [draft, setDraft] = useState<OperationDraft>(() => {
     const src = initial ?? prefill;
     if (src) {
@@ -103,11 +137,29 @@ export function OperationForm({
         note: src.note ?? "",
       };
     }
-    return emptyDraft(defaultAccount);
+    return makeFresh();
   });
 
   const typeDef = getTypeDef(draft.type);
   const [error, setError] = useState(false);
+
+  // Частота категорий — для сортировки чипов (частые выше)
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const o of state.operations) {
+      if (o.deleted) continue;
+      counts.set(o.category, (counts.get(o.category) ?? 0) + 1);
+    }
+    return counts;
+  }, [state.operations]);
+
+  // Категории текущего типа, отсортированные по частоте (стабильно для равных)
+  const sortedCategories = useMemo(() => {
+    return typeDef.categories
+      .map((c, i) => ({ c, i, n: categoryCounts.get(c.name) ?? 0 }))
+      .sort((a, b) => (b.n !== a.n ? b.n - a.n : a.i - b.i))
+      .map((x) => x.c);
+  }, [typeDef, categoryCounts]);
 
   // Отдаём текущий черновик наружу (для «сохранить как шаблон»)
   useEffect(() => {
@@ -149,7 +201,13 @@ export function OperationForm({
       note: draft.note.trim(),
     });
     if (!initial) {
-      setDraft(emptyDraft(defaultAccount));
+      // запоминаем набор для следующего раза и сбрасываем форму
+      setLastUsed({
+        type: draft.type,
+        category: draft.category,
+        accountId: draft.accountId,
+      });
+      setDraft(makeFresh());
     }
   }
 
@@ -160,22 +218,21 @@ export function OperationForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {/* Крупный ввод суммы */}
+      {/* Крупный ввод суммы (с разделителем тысяч) */}
       <div className="flex items-center justify-center gap-1 py-2">
         <input
-          type="number"
+          type="text"
           inputMode="decimal"
-          min="0"
-          step="1"
-          value={draft.amount}
+          value={formatAmountInput(draft.amount)}
           onChange={(e) => {
             if (error) setError(false);
-            setDraft((d) => ({ ...d, amount: e.target.value }));
+            // оставляем только цифры и разделитель, храним без пробелов
+            const cleaned = e.target.value.replace(/[^\d.,]/g, "");
+            setDraft((d) => ({ ...d, amount: cleaned }));
           }}
-          onWheel={(e) => e.currentTarget.blur()}
           placeholder="0"
           autoFocus={!initial}
-          className="w-auto max-w-[70%] bg-transparent text-center text-[52px] font-bold leading-none tracking-tight tabular-nums outline-none placeholder:text-label-3"
+          className="w-auto max-w-[80%] bg-transparent text-center text-[52px] font-bold leading-none tracking-tight tabular-nums outline-none placeholder:text-label-3"
           required
         />
         <span className="text-[40px] font-semibold text-label-3">₽</span>
@@ -185,6 +242,27 @@ export function OperationForm({
           Введите сумму больше нуля
         </p>
       )}
+      {/* Быстрые добавки */}
+      <div className="-mt-2 flex justify-center gap-2">
+        {QUICK_AMOUNTS.map((q) => (
+          <button
+            type="button"
+            key={q}
+            onClick={() => {
+              if (error) setError(false);
+              setDraft((d) => {
+                const cur = Math.round(
+                  Number(d.amount.replace(/\s/g, "").replace(",", ".")) || 0
+                );
+                return { ...d, amount: String(cur + q) };
+              });
+            }}
+            className="rounded-full bg-black/[0.06] px-3.5 py-1.5 text-[13px] font-medium text-slate-600 dark:bg-white/10 dark:text-slate-300"
+          >
+            +{q}
+          </button>
+        ))}
+      </div>
 
       <div>
         <label className={labelCls}>Тип</label>
@@ -209,7 +287,7 @@ export function OperationForm({
       <div>
         <label className={labelCls}>Категория</label>
         <div className="flex flex-wrap gap-2">
-          {typeDef.categories.map((c) => (
+          {sortedCategories.map((c) => (
             <button
               type="button"
               key={c.name}
