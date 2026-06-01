@@ -96,6 +96,63 @@ export function creditAccountDelta(credit: Credit, accountId: string): number {
   return delta;
 }
 
+// Предстоящие в текущем месяце списания: будущие регулярные операции этого
+// месяца (ещё не созданные) и платёж по кредиту, если его срок в этом месяце.
+export interface Upcoming {
+  key: string;
+  date: string;
+  title: string;
+  amount: number;
+  sign: 1 | -1; // влияние на баланс: +доход / −расход
+  kind: "recurring" | "credit";
+}
+
+export function upcomingThisMonth(
+  state: AppState,
+  currentMonth: string,
+  today: string
+): Upcoming[] {
+  const existing = new Set(state.operations.map((o) => o.id));
+  const res: Upcoming[] = [];
+
+  for (const r of state.recurring ?? []) {
+    if (r.deleted || r.active === false || !r.category) continue;
+    if (r.startMonth > currentMonth) continue;
+    const day = Math.min(
+      Math.max(1, r.dayOfMonth || 1),
+      lastDayOfMonth(currentMonth)
+    );
+    const date = `${currentMonth}-${pad2(day)}`;
+    if (date <= today) continue; // уже наступила/создана
+    if (existing.has(`rec-${r.id}-${currentMonth}`)) continue;
+    res.push({
+      key: `r-${r.id}`,
+      date,
+      title: r.title || r.category,
+      amount: r.amount,
+      sign: r.type === "income" ? 1 : -1,
+      kind: "recurring",
+    });
+  }
+
+  for (const c of activeCredits(state)) {
+    const v = creditView(c);
+    if (!v.nextPaymentDate) continue;
+    if (monthKeyFromISO(v.nextPaymentDate) !== currentMonth) continue;
+    if (v.nextPaymentDate < today) continue; // просрочка — это в напоминаниях
+    res.push({
+      key: `c-${c.id}`,
+      date: v.nextPaymentDate,
+      title: `Платёж по «${c.name}»`,
+      amount: v.nextPaymentAmount,
+      sign: -1,
+      kind: "credit",
+    });
+  }
+
+  return res.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
 // ===== Производные вычисления (селекторы) =====
 
 export function currentBalance(state: AppState, accountId: string): number {

@@ -15,6 +15,7 @@ import {
   debtsSummary,
   realPosition,
   dueRecurringOperations,
+  upcomingThisMonth,
 } from "./calc";
 import { AppState, Operation, Debt, Credit, RecurringRule } from "./types";
 
@@ -236,6 +237,29 @@ eq(dueRecurringOperations([rule({ deleted: true })], new Set(), "2026-06", "2026
 // обрезка числа под короткий месяц (31 → 28 февраля)
 const dueFeb = dueRecurringOperations([rule({ dayOfMonth: 31, startMonth: "2026-02" })], new Set(), "2026-02", "2026-02-28");
 eq(dueFeb[0].date, "2026-02-28", "31-е число обрезано до конца февраля");
+
+// ---- upcomingThisMonth ----
+const su = state({
+  recurring: [
+    rule({ id: "rA", title: "Аренда", dayOfMonth: 25, startMonth: "2026-01", amount: 20000 }),
+    rule({ id: "rB", title: "Зарплата", type: "income", category: "Прочий доход", dayOfMonth: 28, startMonth: "2026-01", amount: 50000 }),
+    rule({ id: "rPast", dayOfMonth: 3, startMonth: "2026-01", amount: 999 }), // 3-е уже прошло
+  ],
+  operations: [],
+  credits: [credit({ name: "Альфа", payment: 10921, count: 3, paymentDates: ["2026-06-26"], payments: [] })],
+});
+const up = upcomingThisMonth(su, "2026-06", "2026-06-10");
+// порядок по дате: Аренда 25, Платёж 26, Зарплата 28
+eq(up.map((u) => u.title), ["Аренда", "Платёж по «Альфа»", "Зарплата"], "предстоящие по дате: 25, 26, 28");
+eq(up.map((u) => u.sign), [-1, -1, 1], "знаки: расход, кредит, доход");
+// прошедшее 3-е число не входит; нетто = -20000 -10921 +50000
+eq(up.reduce((s, u) => s + u.sign * u.amount, 0), 50000 - 20000 - 10921, "нетто предстоящих");
+// уже созданная операция этого месяца исключается
+const su2 = state({
+  recurring: [rule({ id: "rA", dayOfMonth: 25, startMonth: "2026-01" })],
+  operations: [op({ id: "rec-rA-2026-06" })],
+});
+eq(upcomingThisMonth(su2, "2026-06", "2026-06-10").length, 0, "созданная регулярная не предстоит");
 
 // ---- итог ----
 console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);

@@ -11,13 +11,17 @@ import {
   debtsSummary,
   debtOutstanding,
   isDebtSettled,
+  upcomingThisMonth,
 } from "@/lib/store";
 import {
   formatMoney,
   formatDateLong,
+  formatDateShort,
   monthLabel,
+  monthKey,
   daysUntil,
   relativeDayLabel,
+  todayISO,
 } from "@/lib/format";
 import { Card, Money, ProgressBar } from "./ui";
 import { SpendingBreakdown } from "./SpendingBreakdown";
@@ -88,6 +92,13 @@ export function Summary({
     });
   }
   reminders.sort((a, b) => a.days - b.days);
+
+  // Предстоящие списания текущего месяца (показываем только для текущего месяца)
+  const isCurrentMonth = month === monthKey(new Date());
+  const upcoming = isCurrentMonth
+    ? upcomingThisMonth(state, month, todayISO())
+    : [];
+  const upcomingNet = upcoming.reduce((s, u) => s + u.sign * u.amount, 0);
   const goal = state.goal;
   const goalRemaining = goal.target - goal.saved;
   const goalPercent = goal.target > 0 ? (goal.saved / goal.target) * 100 : 0;
@@ -249,6 +260,41 @@ export function Summary({
           </div>
         </Card>
       </div>
+
+      {/* Предстоящие в этом месяце */}
+      {upcoming.length > 0 && (
+        <div>
+          <SectionTitle>Предстоящие в этом месяце</SectionTitle>
+          <Card className="!p-0">
+            {upcoming.map((u, i) => (
+              <div
+                key={u.key}
+                className={`flex items-center justify-between gap-3 px-4 py-3 text-[15px] ${
+                  i > 0 ? "border-t border-[var(--separator)]" : ""
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-medium">{u.title}</div>
+                  <div className="text-[13px] text-label-2">
+                    {formatDateShort(u.date)}
+                    {u.kind === "recurring" ? " · регулярно" : " · кредит"}
+                  </div>
+                </div>
+                <Money
+                  value={u.sign * u.amount}
+                  showPlus
+                  colorPositive
+                  className="shrink-0 font-semibold"
+                />
+              </div>
+            ))}
+            <div className="flex items-center justify-between border-t border-[var(--separator)] px-4 py-3 text-[15px]">
+              <span className="text-label-2">Итого изменит баланс</span>
+              <Money value={upcomingNet} showPlus colorPositive className="font-semibold" />
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Динамика по месяцам */}
       <div className="md:col-span-2">
