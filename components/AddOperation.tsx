@@ -5,11 +5,16 @@ import { useStore } from "@/lib/store";
 import { Operation, Template } from "@/lib/types";
 import { OperationForm } from "./OperationForm";
 import { Card } from "./ui";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, monthKeyFromISO } from "@/lib/format";
 
-export function AddOperation({ onAdded }: { onAdded?: () => void }) {
+export function AddOperation({
+  onShowMonth,
+}: {
+  onShowMonth?: (monthKey: string) => void;
+}) {
   const { state, addOperation, addTemplate, deleteTemplate } = useStore();
-  const [savedAt, setSavedAt] = useState<number | null>(null);
+  // дата последней добавленной операции — чтобы открыть её месяц в списке
+  const [lastAddedDate, setLastAddedDate] = useState<string | null>(null);
   // префилл из шаблона; ключ перезапускает форму
   const [prefill, setPrefill] = useState<Partial<Omit<Operation, "id">>>();
   const [formKey, setFormKey] = useState(0);
@@ -47,9 +52,16 @@ export function AddOperation({ onAdded }: { onAdded?: () => void }) {
 
   return (
     <div className="space-y-4">
-      {savedAt && (
-        <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-          Операция добавлена ✓
+      {lastAddedDate && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+          <span>Операция добавлена ✓</span>
+          <button
+            type="button"
+            onClick={() => onShowMonth?.(monthKeyFromISO(lastAddedDate))}
+            className="shrink-0 font-semibold underline underline-offset-2"
+          >
+            Показать в списке
+          </button>
         </div>
       )}
 
@@ -102,9 +114,9 @@ export function AddOperation({ onAdded }: { onAdded?: () => void }) {
           onDraftChange={setDraft}
           onSubmit={(op) => {
             addOperation(op);
-            setSavedAt(Date.now());
-            onAdded?.();
-            setTimeout(() => setSavedAt(null), 2500);
+            // остаёмся на экране для быстрого ввода нескольких операций;
+            // баннер сверху даёт перейти к нужному месяцу в списке
+            setLastAddedDate(op.date);
           }}
         />
       </Card>

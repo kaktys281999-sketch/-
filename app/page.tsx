@@ -75,7 +75,12 @@ export default function Home() {
             <Summary month={month} onSelectMonth={setMonth} />
           )}
           {tab === "add" && (
-            <AddOperation onAdded={() => setTab("operations")} />
+            <AddOperation
+              onShowMonth={(m) => {
+                setMonth(m);
+                setTab("operations");
+              }}
+            />
           )}
           {tab === "operations" && <Operations month={month} />}
           {tab === "settings" && <Settings />}

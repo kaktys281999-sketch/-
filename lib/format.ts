@@ -101,3 +101,22 @@ export function shiftMonth(key: string, delta: number): string {
   const date = new Date(y, m - 1 + delta, 1);
   return monthKey(date);
 }
+
+// Прибавить n месяцев к ISO-дате, сохранив день (с обрезкой под короткие месяцы).
+export function addMonthsISO(iso: string, n: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const base = new Date(y, m - 1 + n, 1);
+  const lastDay = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+  const day = Math.min(d, lastDay);
+  const yy = base.getFullYear();
+  const mm = (base.getMonth() + 1).toString().padStart(2, "0");
+  const dd = day.toString().padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+// Расписание платежей: count дат, ежемесячно, начиная со следующего месяца
+// после даты получения (May 26 → Jun 26, Jul 26, …).
+export function generatePaymentDates(receivedDate: string, count: number): string[] {
+  if (!receivedDate || count <= 0) return [];
+  return Array.from({ length: count }, (_, i) => addMonthsISO(receivedDate, i + 1));
+}

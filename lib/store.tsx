@@ -18,7 +18,7 @@ import {
   Template,
 } from "./types";
 import { getCategorySign, CREDIT_PAYMENT_CATEGORY } from "./categories";
-import { monthKeyFromISO, todayISO } from "./format";
+import { monthKeyFromISO, todayISO, generatePaymentDates } from "./format";
 import {
   SyncConfig,
   EMPTY_SYNC,
@@ -162,9 +162,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Безопасная отправка: не затирать непустую таблицу пустыми операциями.
   // Возвращает true, если запись выполнена.
   const safePush = async (url: string, next: AppState): Promise<boolean> => {
-    const liveCount = next.operations.filter((o) => !o.deleted).length;
-    if (liveCount === 0) {
-      // локально пусто — проверим, есть ли что-то в таблице
+    // Опасен только случай «совсем нет записей» (новое/чистое устройство).
+    // Если есть надгробия (осознанное удаление/сброс) — массив непустой,
+    // их нужно отправить, чтобы изменения дошли до других устройств.
+    if (next.operations.length === 0) {
+      // локально вообще нет операций — проверим, есть ли что-то в таблице
       try {
         const remote = await pull(url);
         const remoteLive = remote
@@ -382,11 +384,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setState((s) => ({ ...s, ...touch({ goal: { ...s.goal, ...goal } }) }));
     };
 
-    const updateCredit = (credit: Partial<CreditConfig>) => {
-      setState((s) => ({
-        ...s,
-        ...touch({ credit: { ...s.credit, ...credit } }),
-      }));
+    const updateCredit = (patch: Partial<CreditConfig>) => {
+      setState((s) => {
+        const credit = { ...s.credit, ...patch };
+        // При изменении даты получения или количества платежей пересобираем
+        // расписание, чтобы «всего к выплате» и список дат не расходились.
+        if (patch.count !== undefined || patch.receivedDate !== undefined) {
+          credit.paymentDates = generatePaymentDates(
+            credit.receivedDate,
+            credit.count
+          );
+        }
+        return { ...s, ...touch({ credit }) };
+      });
     };
 
     // Установить/убрать месячный лимит по категории (0 — убрать)
@@ -416,7 +426,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
 
     const resetAll = () => {
-      setState({ ...INITIAL_STATE, updatedAt: Date.now() });
+      setState((s) => {
+        const now = Date.now();
+        // Существующие операции превращаем в надгробия, а не выкидываем —
+        // иначе при следующей синхронизации они «воскреснут» из таблицы.
+        const tombstones = s.operations.map((o) => ({
+          ...o,
+          deleted: true,
+          updatedAt: now,
+        }));
+        return { ...INITIAL_STATE, operations: tombstones, updatedAt: now };
+      });
     };
 
     const setSyncConfig = (partial: Partial<SyncConfig>) => {

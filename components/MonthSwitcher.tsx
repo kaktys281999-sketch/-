@@ -1,6 +1,6 @@
 "use client";
 
-import { monthLabel, shiftMonth } from "@/lib/format";
+import { monthKey, monthLabel, shiftMonth } from "@/lib/format";
 
 export function MonthSwitcher({
   value,
@@ -9,6 +9,8 @@ export function MonthSwitcher({
   value: string;
   onChange: (key: string) => void;
 }) {
+  const current = monthKey(new Date());
+  const isCurrent = value === current;
   return (
     <div className="flex items-center justify-between rounded-xl bg-black/5 p-1 dark:bg-white/10">
       <button
@@ -19,9 +21,16 @@ export function MonthSwitcher({
       >
         ‹
       </button>
-      <span className="text-[15px] font-semibold tracking-tight">
+      <button
+        type="button"
+        onClick={() => !isCurrent && onChange(current)}
+        disabled={isCurrent}
+        className="text-[15px] font-semibold tracking-tight disabled:cursor-default"
+        title={isCurrent ? undefined : "К текущему месяцу"}
+      >
         {monthLabel(value)}
-      </span>
+        {!isCurrent && <span className="ml-1.5 text-[12px] text-brand">сегодня</span>}
+      </button>
       <button
         type="button"
         onClick={() => onChange(shiftMonth(value, 1))}

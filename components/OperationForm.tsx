@@ -77,6 +77,7 @@ export function OperationForm({
   });
 
   const typeDef = getTypeDef(draft.type);
+  const [error, setError] = useState(false);
 
   // Отдаём текущий черновик наружу (для «сохранить как шаблон»)
   useEffect(() => {
@@ -104,7 +105,11 @@ export function OperationForm({
     const amount = Math.abs(
       Number(draft.amount.replace(/\s/g, "").replace(",", "."))
     );
-    if (!amount || Number.isNaN(amount)) return;
+    if (!amount || Number.isNaN(amount)) {
+      setError(true);
+      return;
+    }
+    setError(false);
     onSubmit({
       date: draft.date,
       type: draft.type,
@@ -133,7 +138,11 @@ export function OperationForm({
           min="0"
           step="1"
           value={draft.amount}
-          onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))}
+          onChange={(e) => {
+            if (error) setError(false);
+            setDraft((d) => ({ ...d, amount: e.target.value }));
+          }}
+          onWheel={(e) => e.currentTarget.blur()}
           placeholder="0"
           autoFocus={!initial}
           className="w-auto max-w-[70%] bg-transparent text-center text-[52px] font-bold leading-none tracking-tight tabular-nums outline-none placeholder:text-label-3"
@@ -141,6 +150,11 @@ export function OperationForm({
         />
         <span className="text-[40px] font-semibold text-label-3">₽</span>
       </div>
+      {error && (
+        <p className="-mt-3 text-center text-[13px] font-medium text-red-600 dark:text-red-400">
+          Введите сумму больше нуля
+        </p>
+      )}
 
       <div>
         <label className={labelCls}>Тип</label>

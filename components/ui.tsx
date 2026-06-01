@@ -47,6 +47,7 @@ export function NumberInput({
           setText(String(value));
         }
       }}
+      onWheel={(e) => e.currentTarget.blur()}
       className={className}
     />
   );
