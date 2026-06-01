@@ -155,7 +155,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   syncRef.current = sync;
   // Флаг: применяем данные из таблицы — не отправлять их обратно
   const applyingRemote = useRef(false);
+  // Стартовый pull завершён — до него авто-отправка запрещена (защита от обнуления)
+  const initialPullDone = useRef(false);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Безопасная отправка: не затирать непустую таблицу пустыми операциями.
+  // Возвращает true, если запись выполнена.
+  const safePush = async (url: string, next: AppState): Promise<boolean> => {
+    const liveCount = next.operations.filter((o) => !o.deleted).length;
+    if (liveCount === 0) {
+      // локально пусто — проверим, есть ли что-то в таблице
+      try {
+        const remote = await pull(url);
+        const remoteLive = remote
+          ? remote.operations.filter((o) => !o.deleted).length
+          : 0;
+        if (remoteLive > 0) {
+          // в таблице есть данные, а у нас пусто — НЕ затираем
+          return false;
+        }
+      } catch {
+        // не смогли проверить — на всякий случай не пишем пустое
+        return false;
+      }
+    }
+    await push(url, toPayload(next));
+    return true;
+  };
 
   // Загрузка локальных данных и конфигурации синхронизации
   useEffect(() => {
@@ -192,12 +218,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Слияние локального и удалённого по операциям (без потери правок)
         const merged = mergeStates(stateRef.current, fromPayload(remote));
         applyRemote(merged);
-        // Если после слияния состояние отличается от удалённого — отдадим обратно
+        // Отдадим результат слияния обратно
         await push(url, toPayload(merged));
       } else {
         // В таблице пусто — зальём своё
         await push(url, toPayload(stateRef.current));
       }
+      initialPullDone.current = true;
       setSyncState({
         status: "ok",
         message: "Синхронизировано",
@@ -218,7 +245,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!url) return;
     setSyncState((p) => ({ ...p, status: "syncing", message: "Сохранение…" }));
     try {
-      await push(url, toPayload(stateRef.current));
+      const wrote = await safePush(url, stateRef.current);
+      if (!wrote) {
+        setSyncState({
+          status: "error",
+          message: "В таблице есть данные — пустое не сохранено",
+          lastSync: null,
+        });
+        return;
+      }
       setSyncState({
         status: "ok",
         message: "Сохранено в таблицу",
@@ -251,9 +286,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (!sync.url.trim() || !sync.auto) return;
+    // До завершения стартового pull не отправляем — иначе пустое состояние
+    // нового устройства может затереть таблицу
+    if (!initialPullDone.current) return;
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => {
-      void pushNow();
+      void safePush(syncRef.current.url.trim(), stateRef.current).then((ok) => {
+        if (ok)
+          setSyncState({
+            status: "ok",
+            message: "Сохранено в таблицу",
+            lastSync: Date.now(),
+          });
+      });
     }, 1500);
     return () => {
       if (pushTimer.current) clearTimeout(pushTimer.current);
