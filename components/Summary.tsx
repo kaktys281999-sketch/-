@@ -13,6 +13,7 @@ import {
   isDebtSettled,
   upcomingThisMonth,
   accountMonthFlow,
+  accountTrend,
 } from "@/lib/store";
 import {
   formatMoney,
@@ -24,7 +25,7 @@ import {
   relativeDayLabel,
   todayISO,
 } from "@/lib/format";
-import { Card, Money, ProgressBar } from "./ui";
+import { Card, Money, ProgressBar, Sparkline } from "./ui";
 import { SpendingBreakdown } from "./SpendingBreakdown";
 import { MonthlyTrend } from "./MonthlyTrend";
 
@@ -275,29 +276,39 @@ export function Summary({
             {accountFlows.map(({ a, f }, i) => (
               <div
                 key={a.id}
-                className={`flex items-center justify-between gap-3 px-4 py-3 text-[15px] ${
+                className={`px-4 py-3 ${
                   i > 0 ? "border-t border-[var(--separator)]" : ""
                 }`}
               >
-                <span className="flex items-center gap-2.5 text-label-2">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: ACCOUNT_COLORS[a.id] ?? "#94a3b8" }}
+                <div className="flex items-center justify-between gap-3 text-[15px]">
+                  <span className="flex items-center gap-2.5 text-label-2">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: ACCOUNT_COLORS[a.id] ?? "#94a3b8" }}
+                    />
+                    {a.name}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-3 tabular-nums">
+                    {f.income > 0 && (
+                      <span className="text-emerald-600 dark:text-emerald-400">
+                        +{formatMoney(f.income)}
+                      </span>
+                    )}
+                    {f.expense > 0 && (
+                      <span className="text-red-600 dark:text-red-400">
+                        −{formatMoney(f.expense)}
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="mt-2">
+                  <Sparkline
+                    values={accountTrend(state, a.id, month, 6).map((p) => p.net)}
                   />
-                  {a.name}
-                </span>
-                <span className="flex shrink-0 items-center gap-3 tabular-nums">
-                  {f.income > 0 && (
-                    <span className="text-emerald-600 dark:text-emerald-400">
-                      +{formatMoney(f.income)}
-                    </span>
-                  )}
-                  {f.expense > 0 && (
-                    <span className="text-red-600 dark:text-red-400">
-                      −{formatMoney(f.expense)}
-                    </span>
-                  )}
-                </span>
+                  <div className="mt-1 text-[11px] text-label-3">
+                    чистый оборот за 6 мес.
+                  </div>
+                </div>
               </div>
             ))}
           </Card>

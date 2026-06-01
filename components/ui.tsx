@@ -96,6 +96,51 @@ export function SearchField({
   );
 }
 
+// Мини-столбчатый график (спарклайн): + зелёным вверх, − красным вниз,
+// относительно максимума по модулю. Тянется на всю ширину контейнера.
+export function Sparkline({
+  values,
+  className = "",
+}: {
+  values: number[];
+  className?: string;
+}) {
+  const n = values.length || 1;
+  const max = Math.max(1, ...values.map((v) => Math.abs(v)));
+  const W = 100;
+  const H = 24;
+  const mid = H / 2;
+  const gap = 2;
+  const barW = (W - (n - 1) * gap) / n;
+  return (
+    <svg
+      width="100%"
+      height={H}
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="none"
+      className={className}
+    >
+      <line x1="0" y1={mid} x2={W} y2={mid} stroke="currentColor" strokeOpacity="0.12" />
+      {values.map((v, i) => {
+        const bh = (Math.abs(v) / max) * (mid - 2);
+        const h = v === 0 ? 0 : Math.max(1, bh);
+        const x = i * (barW + gap);
+        const y = v >= 0 ? mid - h : mid;
+        return (
+          <rect
+            key={i}
+            x={x}
+            y={y}
+            width={barW}
+            height={h}
+            fill={v >= 0 ? "#10b981" : "#f43f5e"}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 export function Card({
   children,
   className = "",

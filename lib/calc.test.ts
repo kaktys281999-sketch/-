@@ -17,6 +17,7 @@ import {
   dueRecurringOperations,
   upcomingThisMonth,
   accountMonthFlow,
+  accountTrend,
 } from "./calc";
 import { AppState, Operation, Debt, Credit, RecurringRule } from "./types";
 
@@ -275,6 +276,18 @@ const sf = state({
 eq(accountMonthFlow(sf, "sber", "2026-06"), { income: 5000, expense: 700, net: 4300 }, "обороты Сбера за июнь");
 eq(accountMonthFlow(sf, "yandex", "2026-06"), { income: 0, expense: 1000, net: -1000 }, "обороты Яндекса за июнь");
 eq(accountMonthFlow(sf, "tinkoff", "2026-06"), { income: 0, expense: 0, net: 0 }, "нет оборотов");
+
+// ---- accountTrend ----
+const st6 = state({
+  operations: [
+    op({ type: "income", category: "Прочий доход", amount: 1000, accountId: "sber", date: "2026-04-10" }),
+    op({ type: "expense_personal", amount: 400, accountId: "sber", date: "2026-05-10" }),
+    op({ type: "income", category: "Прочий доход", amount: 700, accountId: "sber", date: "2026-06-10" }),
+  ],
+});
+const tr = accountTrend(st6, "sber", "2026-06", 6);
+eq(tr.map((p) => p.month), ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"], "6 месяцев по порядку");
+eq(tr.map((p) => p.net), [0, 0, 0, 1000, -400, 700], "чистый оборот по месяцам");
 
 // ---- итог ----
 console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);

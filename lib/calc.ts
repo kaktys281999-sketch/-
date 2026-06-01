@@ -2,7 +2,7 @@
 // store.tsx реэкспортирует всё отсюда, поэтому существующие импорты не меняются.
 import { AppState, Operation, Debt, Credit, RecurringRule } from "./types";
 import { getCategorySign } from "./categories";
-import { monthKeyFromISO } from "./format";
+import { monthKeyFromISO, shiftMonth } from "./format";
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
@@ -220,6 +220,21 @@ export function accountMonthFlow(
     else expense += -d;
   }
   return { income, expense, net: income - expense };
+}
+
+// Динамика чистого оборота по счёту за n месяцев, заканчивая endMonth (старые → новые)
+export function accountTrend(
+  state: AppState,
+  accountId: string,
+  endMonth: string,
+  n = 6
+): { month: string; net: number }[] {
+  const res: { month: string; net: number }[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const m = shiftMonth(endMonth, -i);
+    res.push({ month: m, net: accountMonthFlow(state, accountId, m).net });
+  }
+  return res;
 }
 
 export interface CreditInfo {
