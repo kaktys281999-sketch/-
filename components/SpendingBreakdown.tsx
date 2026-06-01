@@ -8,6 +8,7 @@ import { Card } from "./ui";
 function expensesByCategory(state: AppState, month: string) {
   const map = new Map<string, number>();
   for (const op of state.operations) {
+    if (op.deleted) continue;
     if (monthKeyFromISO(op.date) !== month) continue;
     if (op.type !== "expense_personal" && op.type !== "expense_work") continue;
     map.set(op.category, (map.get(op.category) ?? 0) + op.amount);

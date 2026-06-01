@@ -28,7 +28,9 @@ export function Operations({ month }: { month: string }) {
   // Операции месяца (без учёта фильтра) — для расчёта доступных категорий
   const monthAll = useMemo(
     () =>
-      state.operations.filter((o) => monthKeyFromISO(o.date) === month),
+      state.operations.filter(
+        (o) => !o.deleted && monthKeyFromISO(o.date) === month
+      ),
     [state.operations, month]
   );
 

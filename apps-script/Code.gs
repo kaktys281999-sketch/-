@@ -80,9 +80,14 @@ function writeReadable_(payload) {
   var header = ["Дата", "Тип", "Категория", "Сумма", "Счёт", "Заметка"];
   var rows = [header];
 
-  var ops = (payload.operations || []).slice().sort(function (a, b) {
-    return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
-  });
+  var ops = (payload.operations || [])
+    .filter(function (o) {
+      return !o.deleted; // не показываем удалённые (надгробия)
+    })
+    .slice()
+    .sort(function (a, b) {
+      return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+    });
   ops.forEach(function (o) {
     rows.push([
       o.date,

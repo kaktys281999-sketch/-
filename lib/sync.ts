@@ -1,4 +1,4 @@
-import { AppState } from "./types";
+import { AppState, Operation } from "./types";
 
 // Формат данных, которыми приложение обменивается с Google-таблицей
 export interface SyncPayload {
@@ -30,6 +30,38 @@ export function fromPayload(p: SyncPayload): AppState {
     updatedAt: p.updatedAt ?? 0,
   };
 }
+
+// Слияние двух состояний без потери данных.
+// Операции сливаются по id (выигрывает более свежая версия, удаление = надгробие).
+// Счета/кредит/цель — синглтоны, берутся из более свежего по updatedAt документа.
+export function mergeStates(local: AppState, remote: AppState): AppState {
+  const byId = new Map<string, Operation>();
+  for (const op of local.operations) byId.set(op.id, op);
+  for (const op of remote.operations) {
+    const cur = byId.get(op.id);
+    if (!cur) {
+      byId.set(op.id, op);
+    } else {
+      // более позднее изменение операции побеждает (удаление учитывается через updatedAt)
+      const a = cur.updatedAt ?? 0;
+      const b = op.updatedAt ?? 0;
+      byId.set(op.id, b >= a ? op : cur);
+    }
+  }
+  const operations = Array.from(byId.values());
+
+  const remoteNewer = (remote.updatedAt ?? 0) > (local.updatedAt ?? 0);
+  const base = remoteNewer ? remote : local;
+
+  return {
+    accounts: base.accounts,
+    credit: base.credit,
+    goal: base.goal,
+    operations,
+    updatedAt: Math.max(local.updatedAt ?? 0, remote.updatedAt ?? 0),
+  };
+}
+
 
 // Конфигурация синхронизации (хранится на устройстве, в таблицу НЕ уходит)
 export interface SyncConfig {

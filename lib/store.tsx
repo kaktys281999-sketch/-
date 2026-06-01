@@ -18,6 +18,7 @@ import {
   DEFAULT_SYNC_URL,
   toPayload,
   fromPayload,
+  mergeStates,
   pull,
   push,
 } from "./sync";
@@ -165,17 +166,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setState(s);
   };
 
-  // Загрузить из таблицы (с разрешением конфликта по updatedAt)
+  // Загрузить из таблицы и слить без потери данных
   const pullNow = async () => {
     const url = syncRef.current.url.trim();
     if (!url) return;
     setSyncState((p) => ({ ...p, status: "syncing", message: "Загрузка…" }));
     try {
       const remote = await pull(url);
-      if (remote && remote.updatedAt >= stateRef.current.updatedAt) {
-        applyRemote(fromPayload(remote));
-      } else if (!remote || remote.updatedAt < stateRef.current.updatedAt) {
-        // В таблице пусто или данные старее — зальём своё
+      if (remote) {
+        // Слияние локального и удалённого по операциям (без потери правок)
+        const merged = mergeStates(stateRef.current, fromPayload(remote));
+        applyRemote(merged);
+        // Если после слияния состояние отличается от удалённого — отдадим обратно
+        await push(url, toPayload(merged));
+      } else {
+        // В таблице пусто — зальём своё
         await push(url, toPayload(stateRef.current));
       }
       setSyncState({
@@ -248,25 +253,37 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
 
     const addOperation = (op: Omit<Operation, "id">) => {
-      setState((s) => ({
-        ...s,
-        ...touch({ operations: [...s.operations, { ...op, id: uid() }] }),
-      }));
-    };
-
-    const updateOperation = (id: string, op: Omit<Operation, "id">) => {
+      const now = Date.now();
       setState((s) => ({
         ...s,
         ...touch({
-          operations: s.operations.map((o) => (o.id === id ? { ...op, id } : o)),
+          operations: [...s.operations, { ...op, id: uid(), updatedAt: now }],
         }),
       }));
     };
 
-    const deleteOperation = (id: string) => {
+    const updateOperation = (id: string, op: Omit<Operation, "id">) => {
+      const now = Date.now();
       setState((s) => ({
         ...s,
-        ...touch({ operations: s.operations.filter((o) => o.id !== id) }),
+        ...touch({
+          operations: s.operations.map((o) =>
+            o.id === id ? { ...op, id, updatedAt: now } : o
+          ),
+        }),
+      }));
+    };
+
+    // Удаление — надгробие (tombstone), чтобы синхронизация не «воскрешала» запись
+    const deleteOperation = (id: string) => {
+      const now = Date.now();
+      setState((s) => ({
+        ...s,
+        ...touch({
+          operations: s.operations.map((o) =>
+            o.id === id ? { ...o, deleted: true, updatedAt: now } : o
+          ),
+        }),
       }));
     };
 
@@ -275,7 +292,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const setAccountBalance = (id: string, currentBalance: number) => {
       setState((s) => {
         const deltaSum = s.operations
-          .filter((o) => o.accountId === id)
+          .filter((o) => o.accountId === id && !o.deleted)
           .reduce((sum, o) => sum + operationDelta(o), 0);
         return {
           ...s,
@@ -342,7 +359,7 @@ export function currentBalance(state: AppState, accountId: string): number {
   const acc = state.accounts.find((a) => a.id === accountId);
   if (!acc) return 0;
   const deltaSum = state.operations
-    .filter((o) => o.accountId === accountId)
+    .filter((o) => o.accountId === accountId && !o.deleted)
     .reduce((sum, o) => sum + operationDelta(o), 0);
   return acc.baseBalance + deltaSum;
 }
@@ -366,6 +383,7 @@ export function monthSummary(state: AppState, mKey: string): MonthSummary {
   let income = 0;
   let expense = 0;
   for (const op of state.operations) {
+    if (op.deleted) continue;
     if (monthKeyFromISO(op.date) !== mKey) continue;
     if (op.type === "income") income += op.amount;
     else if (op.type === "expense_personal" || op.type === "expense_work")
@@ -393,6 +411,7 @@ export function creditInfo(state: AppState): CreditInfo {
   const paid = state.operations
     .filter(
       (o) =>
+        !o.deleted &&
         o.type === "credit_loan" &&
         o.category === CREDIT_PAYMENT_CATEGORY &&
         o.date > credit.receivedDate
