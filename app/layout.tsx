@@ -3,6 +3,7 @@ import { Manrope } from "next/font/google";
 import "./globals.css";
 import { StoreProvider } from "@/lib/store";
 import { THEME_SCRIPT } from "@/lib/theme";
+import { PwaRegister } from "@/components/PwaRegister";
 
 const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
@@ -34,6 +35,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body>
+        <PwaRegister />
         <StoreProvider>{children}</StoreProvider>
       </body>
     </html>

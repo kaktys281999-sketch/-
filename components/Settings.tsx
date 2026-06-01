@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useStore, currentBalance, creditInfo } from "@/lib/store";
 import { formatMoney, formatDateLong } from "@/lib/format";
 import { Theme, getTheme, setTheme, DEFAULT_THEME } from "@/lib/theme";
+import { operationsToCSV, downloadFile } from "@/lib/export";
 import { Card, NumberInput } from "./ui";
 
 export function Settings() {
@@ -147,6 +148,30 @@ export function Settings() {
             {state.credit.paymentDates.map((d) => formatDateLong(d)).join(", ")}
           </div>
         </div>
+      </Card>
+
+      {/* Экспорт */}
+      <Card>
+        <div className="mb-3 text-sm font-medium text-slate-500 dark:text-slate-400">
+          Экспорт данных
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            const today = new Date().toISOString().slice(0, 10);
+            downloadFile(
+              `финансы-${today}.csv`,
+              operationsToCSV(state),
+              "text/csv;charset=utf-8"
+            );
+          }}
+          className="w-full rounded-xl bg-slate-100 py-3 text-sm font-semibold text-slate-700 active:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:active:bg-slate-700"
+        >
+          Скачать операции (CSV)
+        </button>
+        <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+          Файл открывается в Excel и Google Таблицах. Удобно как резервная копия.
+        </p>
       </Card>
 
       <Card>
