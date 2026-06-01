@@ -7,6 +7,7 @@ import { Summary } from "@/components/Summary";
 import { AddOperation } from "@/components/AddOperation";
 import { Operations } from "@/components/Operations";
 import { Settings } from "@/components/Settings";
+import { SyncBadge } from "@/components/SyncBadge";
 import {
   IconSummary,
   IconAdd,
@@ -51,10 +52,11 @@ export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col">
       {/* Лаконичная шапка */}
-      <header className="sticky top-0 z-10 bg-slate-50/85 px-5 pb-2 pt-4 backdrop-blur dark:bg-slate-950/85">
+      <header className="sticky top-0 z-10 flex items-center justify-between bg-slate-50/85 px-5 pb-2 pt-4 backdrop-blur dark:bg-slate-950/85">
         <span className="text-base font-bold tracking-tight text-slate-900 dark:text-slate-100">
           Финансы
         </span>
+        <SyncBadge />
       </header>
 
       <div className="flex-1 space-y-3 px-3 pb-28 pt-1">

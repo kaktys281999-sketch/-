@@ -62,6 +62,7 @@ interface StoreContextValue {
   addOperation: (op: Omit<Operation, "id">) => void;
   updateOperation: (id: string, op: Omit<Operation, "id">) => void;
   deleteOperation: (id: string) => void;
+  restoreOperation: (id: string) => void;
   setAccountBalance: (id: string, currentBalance: number) => void;
   updateGoal: (goal: Partial<Goal>) => void;
   updateCredit: (credit: Partial<CreditConfig>) => void;
@@ -287,6 +288,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }));
     };
 
+    // Отмена удаления — снимаем надгробие
+    const restoreOperation = (id: string) => {
+      const now = Date.now();
+      setState((s) => ({
+        ...s,
+        ...touch({
+          operations: s.operations.map((o) =>
+            o.id === id ? { ...o, deleted: false, updatedAt: now } : o
+          ),
+        }),
+      }));
+    };
+
     // Ручное редактирование баланса: текущий = base + сумма дельт.
     // Подбираем base так, чтобы текущий стал равен введённому значению.
     const setAccountBalance = (id: string, currentBalance: number) => {
@@ -329,6 +343,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addOperation,
       updateOperation,
       deleteOperation,
+      restoreOperation,
       setAccountBalance,
       updateGoal,
       updateCredit,

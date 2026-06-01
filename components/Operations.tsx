@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore, operationDelta } from "@/lib/store";
+import { UndoToast } from "./Toast";
 import { Operation, OpType } from "@/lib/types";
 import {
   formatMoney,
@@ -21,9 +22,25 @@ const TYPE_COLOR: Record<OpType, string> = {
 };
 
 export function Operations({ month }: { month: string }) {
-  const { state, updateOperation, deleteOperation } = useStore();
+  const { state, updateOperation, deleteOperation, restoreOperation } =
+    useStore();
   const [filter, setFilter] = useState<string>("");
   const [editing, setEditing] = useState<Operation | null>(null);
+  // id недавно удалённой операции — для снэкбара «Отменить»
+  const [undoId, setUndoId] = useState<string | null>(null);
+
+  // автоскрытие снэкбара через 6 секунд
+  useEffect(() => {
+    if (!undoId) return;
+    const t = setTimeout(() => setUndoId(null), 6000);
+    return () => clearTimeout(t);
+  }, [undoId]);
+
+  function handleDelete(id: string) {
+    deleteOperation(id);
+    setEditing(null);
+    setUndoId(id);
+  }
 
   // Операции месяца (без учёта фильтра) — для расчёта доступных категорий
   const monthAll = useMemo(
@@ -90,12 +107,7 @@ export function Operations({ month }: { month: string }) {
           />
           <button
             type="button"
-            onClick={() => {
-              if (confirm("Удалить операцию?")) {
-                deleteOperation(editing.id);
-                setEditing(null);
-              }
-            }}
+            onClick={() => handleDelete(editing.id)}
             className="mt-3 w-full rounded-xl bg-red-50 py-3 text-sm font-semibold text-red-600 active:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:active:bg-red-950/60"
           >
             Удалить операцию
@@ -178,6 +190,17 @@ export function Operations({ month }: { month: string }) {
           </div>
         );
       })}
+
+      {undoId && (
+        <UndoToast
+          message="Операция удалена"
+          onAction={() => {
+            restoreOperation(undoId);
+            setUndoId(null);
+          }}
+          onClose={() => setUndoId(null)}
+        />
+      )}
     </div>
   );
 }
