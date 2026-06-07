@@ -8,6 +8,7 @@ import { AddOperation } from "@/components/AddOperation";
 import { Operations } from "@/components/Operations";
 import { Debts } from "@/components/Debts";
 import { Credits } from "@/components/Credits";
+import { Subscriptions } from "@/components/Subscriptions";
 import { Settings } from "@/components/Settings";
 import { SyncBadge } from "@/components/SyncBadge";
 import { SaveButton } from "@/components/SaveButton";
@@ -17,10 +18,18 @@ import {
   IconList,
   IconDebts,
   IconCredit,
+  IconSubscriptions,
   IconSettings,
 } from "@/components/icons";
 
-type Tab = "summary" | "add" | "operations" | "debts" | "credits" | "settings";
+type Tab =
+  | "summary"
+  | "add"
+  | "operations"
+  | "debts"
+  | "credits"
+  | "subscriptions"
+  | "settings";
 
 const TABS: {
   id: Tab;
@@ -32,6 +41,7 @@ const TABS: {
   { id: "operations", label: "Операции", Icon: IconList },
   { id: "debts", label: "Долги", Icon: IconDebts },
   { id: "credits", label: "Кредиты", Icon: IconCredit },
+  { id: "subscriptions", label: "Подписки", Icon: IconSubscriptions },
   { id: "settings", label: "Настройки", Icon: IconSettings },
 ];
 
@@ -146,6 +156,11 @@ export default function Home() {
           {tab === "credits" && (
             <div className="md:mx-auto md:max-w-3xl">
               <Credits />
+            </div>
+          )}
+          {tab === "subscriptions" && (
+            <div className="md:mx-auto md:max-w-2xl">
+              <Subscriptions />
             </div>
           )}
           {tab === "settings" && (

@@ -111,6 +111,11 @@ interface StoreContextValue {
   addRecurring: (r: Omit<RecurringRule, "id" | "updatedAt">) => void;
   updateRecurring: (id: string, patch: Partial<Omit<RecurringRule, "id">>) => void;
   deleteRecurring: (id: string) => void;
+  paySubscription: (
+    ruleId: string,
+    opts?: { date?: string; accountId?: string; amount?: number }
+  ) => void;
+  unpaySubscription: (ruleId: string, month: string) => void;
   // Долги
   addDebt: (d: Omit<Debt, "id" | "payments">) => void;
   updateDebt: (id: string, patch: Partial<Omit<Debt, "id">>) => void;
@@ -607,6 +612,49 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }));
     };
 
+    // Оплатить подписку: создаёт/обновляет операцию с детерминированным id
+    // (rec-<rule>-<month>) — оплата за конкретный месяц, без дублей.
+    const paySubscription = (
+      ruleId: string,
+      opts?: { date?: string; accountId?: string; amount?: number }
+    ) => {
+      setState((s) => {
+        const rule = (s.recurring ?? []).find((r) => r.id === ruleId);
+        if (!rule) return s;
+        const date = opts?.date ?? todayISO();
+        const id = `rec-${ruleId}-${date.slice(0, 7)}`;
+        const op: Operation = {
+          id,
+          date,
+          type: rule.type,
+          category: rule.category,
+          amount: opts?.amount ?? rule.amount,
+          accountId: opts?.accountId ?? rule.accountId,
+          note: rule.title || rule.note || "",
+          recurringId: ruleId,
+          updatedAt: Date.now(),
+        };
+        const exists = s.operations.some((o) => o.id === id);
+        const operations = exists
+          ? s.operations.map((o) => (o.id === id ? op : o))
+          : [...s.operations, op];
+        return { ...s, ...touch({ operations }) };
+      });
+    };
+
+    // Отменить оплату подписки за месяц (надгробие операции)
+    const unpaySubscription = (ruleId: string, month: string) => {
+      const id = `rec-${ruleId}-${month}`;
+      setState((s) => ({
+        ...s,
+        ...touch({
+          operations: s.operations.map((o) =>
+            o.id === id ? { ...o, deleted: true, updatedAt: Date.now() } : o
+          ),
+        }),
+      }));
+    };
+
     // ===== Долги =====
     const addDebt = (d: Omit<Debt, "id" | "payments">) => {
       const now = Date.now();
@@ -757,6 +805,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addRecurring,
       updateRecurring,
       deleteRecurring,
+      paySubscription,
+      unpaySubscription,
       addDebt,
       updateDebt,
       deleteDebt,

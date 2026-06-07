@@ -42,6 +42,7 @@ export function dueRecurringOperations(
   const out: Operation[] = [];
   for (const r of rules) {
     if (r.deleted || r.active === false || !r.startMonth || !r.category) continue;
+    if (r.kind === "subscription") continue; // подписки списываются вручную
     for (const month of monthsRange(r.startMonth, currentMonth)) {
       const id = `rec-${r.id}-${month}`;
       if (existingIds.has(id)) continue; // уже создана или удалена (надгробие)
@@ -117,6 +118,7 @@ export function upcomingThisMonth(
 
   for (const r of state.recurring ?? []) {
     if (r.deleted || r.active === false || !r.category) continue;
+    if (r.kind === "subscription") continue; // подписки — отдельный блок
     if (r.startMonth > currentMonth) continue;
     const day = Math.min(
       Math.max(1, r.dayOfMonth || 1),
@@ -151,6 +153,143 @@ export function upcomingThisMonth(
   }
 
   return res.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
+// ===== Подписки =====
+
+// id операции-оплаты подписки за месяц (детерминированный, как у регулярных)
+export function subscriptionOpId(ruleId: string, month: string): string {
+  return `rec-${ruleId}-${month}`;
+}
+
+// Активные подписки (включённые)
+export function subscriptionRules(state: AppState): RecurringRule[] {
+  return (state.recurring ?? []).filter(
+    (r) => !r.deleted && r.kind === "subscription"
+  );
+}
+export function activeSubscriptions(state: AppState): RecurringRule[] {
+  return subscriptionRules(state).filter((r) => r.active !== false);
+}
+
+// Сумма подписок в месяц и в год (по включённым)
+export function subscriptionsMonthlyTotal(state: AppState): number {
+  return activeSubscriptions(state).reduce((s, r) => s + r.amount, 0);
+}
+
+// Оплачена ли подписка в этом месяце (есть операция с детерминированным id)
+export function isSubscriptionPaid(
+  state: AppState,
+  ruleId: string,
+  month: string
+): boolean {
+  const id = subscriptionOpId(ruleId, month);
+  return state.operations.some((o) => o.id === id && !o.deleted);
+}
+
+// Фактически потрачено на подписки за месяц (по операциям с recurringId подписок)
+export function subscriptionSpent(state: AppState, month: string): number {
+  const ids = new Set(subscriptionRules(state).map((r) => r.id));
+  return state.operations
+    .filter(
+      (o) =>
+        !o.deleted &&
+        o.recurringId &&
+        ids.has(o.recurringId) &&
+        monthKeyFromISO(o.date) === month
+    )
+    .reduce((s, o) => s + o.amount, 0);
+}
+
+export interface SubscriptionStatus {
+  rule: RecurringRule;
+  date: string; // запланированная дата в этом месяце
+  paid: boolean;
+  due: boolean; // дата наступила и не оплачено
+  upcoming: boolean; // ещё впереди в этом месяце
+}
+
+export function subscriptionStatuses(
+  state: AppState,
+  month: string,
+  today: string
+): SubscriptionStatus[] {
+  return activeSubscriptions(state).map((r) => {
+    const day = Math.min(Math.max(1, r.dayOfMonth || 1), lastDayOfMonth(month));
+    const date = `${month}-${pad2(day)}`;
+    const paid = isSubscriptionPaid(state, r.id, month);
+    return {
+      rule: r,
+      date,
+      paid,
+      due: !paid && date <= today,
+      upcoming: !paid && date > today,
+    };
+  });
+}
+
+// ----- Автоопределение подписок из истории трат -----
+export interface SubSuggestion {
+  category: string;
+  note: string;
+  amount: number;
+  dayOfMonth: number;
+  months: number; // в скольких месяцах встречалось
+}
+
+function mostCommon(nums: number[]): { value: number; count: number } {
+  const m = new Map<number, number>();
+  for (const n of nums) m.set(n, (m.get(n) ?? 0) + 1);
+  let best = nums[0] ?? 0;
+  let count = 0;
+  for (const [v, c] of m) if (c > count) { best = v; count = c; }
+  return { value: best, count };
+}
+
+// Похожие на подписки траты: одинаковая сумма повторяется в ≥2 месяцах,
+// исключая уже заведённые подписки и операции от правил.
+export function suggestSubscriptions(state: AppState): SubSuggestion[] {
+  const existingSig = new Set(
+    subscriptionRules(state).map(
+      (r) => `${r.category}|${(r.note || r.title || "").trim().toLowerCase()}`
+    )
+  );
+
+  const groups = new Map<
+    string,
+    { category: string; note: string; amounts: number[]; days: number[]; months: Set<string> }
+  >();
+
+  for (const o of state.operations) {
+    if (o.deleted || o.recurringId) continue;
+    if (o.type !== "expense_personal" && o.type !== "expense_work") continue;
+    const note = (o.note || "").trim();
+    const key = `${o.category}|${note.toLowerCase()}`;
+    const g =
+      groups.get(key) ??
+      { category: o.category, note, amounts: [], days: [], months: new Set<string>() };
+    g.amounts.push(o.amount);
+    g.days.push(Number(o.date.slice(8, 10)));
+    g.months.add(monthKeyFromISO(o.date));
+    groups.set(key, g);
+  }
+
+  const res: SubSuggestion[] = [];
+  for (const g of groups.values()) {
+    if (g.months.size < 2) continue;
+    const amount = mostCommon(g.amounts);
+    if (amount.count < 2) continue; // одинаковая сумма должна повторяться
+    const sig = `${g.category}|${g.note.toLowerCase()}`;
+    if (existingSig.has(sig)) continue;
+    res.push({
+      category: g.category,
+      note: g.note,
+      amount: amount.value,
+      dayOfMonth: mostCommon(g.days).value || 1,
+      months: g.months.size,
+    });
+  }
+  return res.sort((a, b) => b.months - a.months || b.amount - a.amount);
 }
 
 // ===== Производные вычисления (селекторы) =====

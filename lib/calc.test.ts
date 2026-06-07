@@ -18,6 +18,10 @@ import {
   upcomingThisMonth,
   accountMonthFlow,
   accountTrend,
+  subscriptionsMonthlyTotal,
+  isSubscriptionPaid,
+  subscriptionStatuses,
+  suggestSubscriptions,
 } from "./calc";
 import { AppState, Operation, Debt, Credit, RecurringRule } from "./types";
 
@@ -288,6 +292,53 @@ const st6 = state({
 const tr = accountTrend(st6, "sber", "2026-06", 6);
 eq(tr.map((p) => p.month), ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"], "6 месяцев по порядку");
 eq(tr.map((p) => p.net), [0, 0, 0, 1000, -400, 700], "чистый оборот по месяцам");
+
+// ---- подписки ----
+const sub = (p: Partial<RecurringRule>) =>
+  rule({ kind: "subscription", ...p });
+
+// подписки не списываются автоматически
+eq(
+  dueRecurringOperations([sub({ id: "s1", startMonth: "2026-04" })], new Set(), "2026-06", "2026-06-10").length,
+  0,
+  "подписка не авто-списывается"
+);
+
+// сумма в месяц по включённым
+const ssub = state({
+  recurring: [
+    sub({ id: "s1", amount: 500, dayOfMonth: 5 }),
+    sub({ id: "s2", amount: 1500, dayOfMonth: 20 }),
+    sub({ id: "s3", amount: 999, dayOfMonth: 1, active: false }), // выключена
+  ],
+});
+eq(subscriptionsMonthlyTotal(ssub), 2000, "сумма подписок в месяц (без выключенной)");
+
+// статусы: due (5-е прошло, не оплачено), upcoming (20-е впереди)
+const st = subscriptionStatuses(ssub, "2026-06", "2026-06-10");
+eq([st[0].due, st[0].upcoming, st[0].paid], [true, false, false], "s1 — пора оплатить");
+eq([st[1].due, st[1].upcoming, st[1].paid], [false, true, false], "s2 — предстоит");
+
+// оплата фиксируется операцией с детерминированным id
+const sPaid = state({
+  recurring: [sub({ id: "s1", amount: 500, dayOfMonth: 5 })],
+  operations: [op({ id: "rec-s1-2026-06", recurringId: "s1", amount: 500, date: "2026-06-05" })],
+});
+eq(isSubscriptionPaid(sPaid, "s1", "2026-06"), true, "оплачено в этом месяце");
+eq(subscriptionStatuses(sPaid, "2026-06", "2026-06-10")[0].paid, true, "статус оплачено");
+
+// автоопределение: одинаковая сумма в 2 месяцах → предложение
+const sSugg = state({
+  operations: [
+    op({ category: "Мобильный / подписки", amount: 500, date: "2026-05-12", note: "Netflix" }),
+    op({ category: "Мобильный / подписки", amount: 500, date: "2026-06-12", note: "Netflix" }),
+    op({ category: "Продукты / еда / вода", amount: 700, date: "2026-05-03" }),
+    op({ category: "Продукты / еда / вода", amount: 900, date: "2026-06-03" }), // суммы разные → не подписка
+  ],
+});
+const sugg = suggestSubscriptions(sSugg);
+eq(sugg.length, 1, "одно предложение");
+eq([sugg[0].note, sugg[0].amount, sugg[0].dayOfMonth, sugg[0].months], ["Netflix", 500, 12, 2], "предложение Netflix");
 
 // ---- итог ----
 console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);

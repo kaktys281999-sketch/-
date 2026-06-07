@@ -25,7 +25,9 @@ export interface Operation {
   deleted?: boolean; // надгробие — операция удалена, но запись хранится для синхронизации
 }
 
-// Регулярная (повторяющаяся) операция: создаёт операцию каждый месяц
+// Регулярная (повторяющаяся) операция.
+// kind="auto" — создаётся автоматически каждый месяц;
+// kind="subscription" — подписка: списывается вручную кнопкой «Оплатить».
 export interface RecurringRule {
   id: string;
   title: string; // короткая подпись
@@ -36,6 +38,7 @@ export interface RecurringRule {
   dayOfMonth: number; // число месяца (1..31, обрезается под короткие месяцы)
   startMonth: string; // с какого месяца начинать, «YYYY-MM»
   note: string;
+  kind?: "auto" | "subscription"; // по умолчанию "auto"
   active?: boolean; // включено (по умолчанию true)
   updatedAt?: number;
   deleted?: boolean; // надгробие
