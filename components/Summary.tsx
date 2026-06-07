@@ -14,6 +14,7 @@ import {
   upcomingThisMonth,
   accountMonthFlow,
   accountTrend,
+  subscriptionStatuses,
 } from "@/lib/store";
 import {
   formatMoney,
@@ -41,56 +42,92 @@ export function Summary({
   onSelectMonth,
   onOpenDebts,
   onOpenCredits,
+  onOpenSubscriptions,
 }: {
   month: string;
   onSelectMonth?: (key: string) => void;
   onOpenDebts?: () => void;
   onOpenCredits?: () => void;
+  onOpenSubscriptions?: () => void;
 }) {
-  const { state } = useStore();
+  const { state, paySubscription, addCreditPayment, settleDebt } = useStore();
   const onHand = totalOnHand(state);
   const summary = monthSummary(state, month);
   const credit = creditInfo(state);
   const position = realPosition(state);
   const debts = debtsSummary(state);
   const hasDebts = debts.owedToMe > 0 || debts.iOwe > 0;
-  // Единые напоминания (кредиты + долги) на ближайшие 7 дней или просроченные
+  const realMonth = monthKey(new Date());
+  const today = todayISO();
+  const primary =
+    state.primaryAccountId ?? state.accounts[0]?.id ?? "";
+
+  // Единые напоминания с действием: подписки, кредиты, долги
+  // в ближайшие 7 дней или просроченные.
   type Reminder = {
     key: string;
     days: number;
     iso: string;
     title: string;
     amount: number;
-    onClick?: () => void;
+    actionLabel: string;
+    onAction: () => void;
+    onOpen?: () => void;
   };
   const reminders: Reminder[] = [];
+
+  for (const s of subscriptionStatuses(state, realMonth, today)) {
+    if (s.paid) continue;
+    const days = daysUntil(s.date);
+    if (days > 7) continue;
+    reminders.push({
+      key: `s-${s.rule.id}`,
+      days,
+      iso: s.date,
+      title: `Подписка «${s.rule.title || s.rule.category}»`,
+      amount: s.rule.amount,
+      actionLabel: "Оплатить",
+      onAction: () => paySubscription(s.rule.id),
+      onOpen: onOpenSubscriptions,
+    });
+  }
   for (const v of creditViews(state)) {
     if (!v.nextPaymentDate) continue;
     const days = daysUntil(v.nextPaymentDate);
     if (days > 7) continue;
+    const acc = v.credit.accountId || primary;
     reminders.push({
       key: `c-${v.credit.id}`,
       days,
       iso: v.nextPaymentDate,
       title: `Платёж по «${v.credit.name}»`,
       amount: v.nextPaymentAmount,
-      onClick: onOpenCredits,
+      actionLabel: "Внести",
+      onAction: () =>
+        addCreditPayment(v.credit.id, {
+          date: today,
+          amount: v.nextPaymentAmount,
+          accountId: acc,
+        }),
+      onOpen: onOpenCredits,
     });
   }
   for (const d of state.debts ?? []) {
     if (d.deleted || !d.dueDate || isDebtSettled(d)) continue;
     const days = daysUntil(d.dueDate);
     if (days > 7) continue;
+    const iOwe = d.direction === "i_owe";
     reminders.push({
       key: `d-${d.id}`,
       days,
       iso: d.dueDate,
-      title:
-        d.direction === "i_owe"
-          ? `Вернуть долг «${d.person || "без имени"}»`
-          : `Возврат от «${d.person || "без имени"}»`,
+      title: iOwe
+        ? `Вернуть долг «${d.person || "без имени"}»`
+        : `Возврат от «${d.person || "без имени"}»`,
       amount: debtOutstanding(d),
-      onClick: onOpenDebts,
+      actionLabel: iOwe ? "Погасить" : "Получено",
+      onAction: () => settleDebt(d.id, d.accountId),
+      onOpen: onOpenDebts,
     });
   }
   reminders.sort((a, b) => a.days - b.days);
@@ -143,17 +180,15 @@ export function Summary({
         </div>
       </div>
 
-      {/* Напоминания: платежи по кредитам и сроки возврата долгов */}
+      {/* Напоминания с действием: подписки, кредиты, долги */}
       {reminders.length > 0 && (
         <div className="space-y-2 md:col-span-2">
           {reminders.map((r) => {
             const urgent = r.days <= 0;
             return (
-              <button
+              <div
                 key={r.key}
-                type="button"
-                onClick={r.onClick}
-                className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left ${
+                className={`flex items-center gap-3 rounded-2xl px-4 py-3 ${
                   urgent
                     ? "bg-red-50 dark:bg-red-950/40"
                     : "bg-amber-50 dark:bg-amber-950/30"
@@ -166,7 +201,11 @@ export function Summary({
                 >
                   {urgent ? "⚠️" : "🔔"}
                 </span>
-                <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={r.onOpen}
+                  className="min-w-0 flex-1 text-left"
+                >
                   <div className="truncate text-[15px] font-semibold">
                     {r.title}
                   </div>
@@ -177,13 +216,17 @@ export function Summary({
                         : "text-amber-700 dark:text-amber-300"
                     }`}
                   >
-                    {relativeDayLabel(r.iso)} · {formatDateLong(r.iso)}
+                    {relativeDayLabel(r.iso)} · {formatMoney(r.amount)}
                   </div>
-                </div>
-                <span className="shrink-0 text-[15px] font-semibold">
-                  {formatMoney(r.amount)}
-                </span>
-              </button>
+                </button>
+                <button
+                  type="button"
+                  onClick={r.onAction}
+                  className="shrink-0 rounded-full bg-brand px-3.5 py-1.5 text-[14px] font-semibold text-white active:scale-95"
+                >
+                  {r.actionLabel}
+                </button>
+              </div>
             );
           })}
         </div>

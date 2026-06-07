@@ -131,6 +131,7 @@ export default function Home() {
               onSelectMonth={setMonth}
               onOpenDebts={() => setTab("debts")}
               onOpenCredits={() => setTab("credits")}
+              onOpenSubscriptions={() => setTab("subscriptions")}
             />
           )}
           {tab === "add" && (
