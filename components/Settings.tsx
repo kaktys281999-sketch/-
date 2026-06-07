@@ -11,7 +11,6 @@ import {
 } from "@/lib/export";
 import { TYPES } from "@/lib/categories";
 import { Card, NumberInput } from "./ui";
-import { RecurringSettings } from "./RecurringSettings";
 
 // Категории расходов (личные + рабочие) — для лимитов
 const EXPENSE_CATEGORIES = TYPES.filter(
@@ -126,8 +125,6 @@ export function Settings() {
         </div>
         </Card>
       </div>
-
-      <RecurringSettings fieldCls={fieldCls} />
 
       <BudgetsCard fieldCls={fieldCls} />
 

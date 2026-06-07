@@ -22,7 +22,10 @@ export function RecurringSettings({ fieldCls }: { fieldCls: string }) {
   const { state, updateRecurring, deleteRecurring } = useStore();
   const [adding, setAdding] = useState(false);
 
-  const rules = (state.recurring ?? []).filter((r) => !r.deleted);
+  // только авто-правила (подписки управляются на своей вкладке)
+  const rules = (state.recurring ?? []).filter(
+    (r) => !r.deleted && r.kind !== "subscription"
+  );
   const accountName = (id: string) =>
     state.accounts.find((a) => a.id === id)?.name ?? "—";
 
@@ -143,6 +146,7 @@ function RecurringForm({
       dayOfMonth: d,
       startMonth: monthKey(new Date()),
       note: "",
+      kind: "auto",
       active: true,
     });
     onClose();

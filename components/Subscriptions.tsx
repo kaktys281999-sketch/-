@@ -19,6 +19,7 @@ import {
   todayISO,
 } from "@/lib/format";
 import { Card, NumberInput } from "./ui";
+import { RecurringSettings } from "./RecurringSettings";
 
 // Категории-расходы (личное + рабочее) и их тип
 const EXPENSE_CATS: { name: string; type: OpType }[] = TYPES.filter(
@@ -33,6 +34,9 @@ export function Subscriptions() {
   const { state, paySubscription } = useStore();
   const [adding, setAdding] = useState<Partial<SubSuggestion> | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [mode, setMode] = useState<"subscriptions" | "recurring">(
+    "subscriptions"
+  );
 
   const month = monthKey(new Date());
   const today = todayISO();
@@ -66,6 +70,71 @@ export function Subscriptions() {
     (a, b) => order(a) - order(b) || a.date.localeCompare(b.date)
   );
 
+  const fieldCls =
+    "w-full rounded-xl bg-black/[0.04] px-3.5 py-2.5 outline-none focus:ring-2 focus:ring-brand/40 dark:bg-white/[0.06] dark:text-slate-100";
+
+  return (
+    <div className="space-y-4">
+      {/* Переключатель: подписки / регулярные (авто) */}
+      <div className="grid grid-cols-2 gap-1 rounded-xl bg-black/[0.06] p-1 dark:bg-white/10">
+        {(
+          [
+            ["subscriptions", "Подписки"],
+            ["recurring", "Регулярные"],
+          ] as const
+        ).map(([m, label]) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => setMode(m)}
+            className={`rounded-lg py-2 text-[14px] font-medium ${
+              mode === m
+                ? "bg-[var(--card)] text-slate-900 shadow-sm dark:text-white"
+                : "text-label-2"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "recurring" ? (
+        <RecurringSettings fieldCls={fieldCls} />
+      ) : (
+        <SubsContent
+          statuses={sorted}
+          monthly={monthly}
+          spent={spent}
+          suggestions={suggestions}
+          accountName={accountName}
+          onAdd={(preset) => setAdding(preset)}
+          onOpen={(id) => setOpenId(id)}
+          onPay={(id) => paySubscription(id)}
+        />
+      )}
+    </div>
+  );
+}
+
+function SubsContent({
+  statuses,
+  monthly,
+  spent,
+  suggestions,
+  accountName,
+  onAdd,
+  onOpen,
+  onPay,
+}: {
+  statuses: ReturnType<typeof subscriptionStatuses>;
+  monthly: number;
+  spent: number;
+  suggestions: SubSuggestion[];
+  accountName: (id: string) => string;
+  onAdd: (preset: Partial<SubSuggestion>) => void;
+  onOpen: (id: string) => void;
+  onPay: (id: string) => void;
+}) {
   return (
     <div className="space-y-4">
       {/* Статистика */}
@@ -90,7 +159,7 @@ export function Subscriptions() {
 
       <button
         type="button"
-        onClick={() => setAdding({})}
+        onClick={() => onAdd({})}
         className="w-full rounded-2xl bg-brand py-3.5 text-[17px] font-semibold text-white"
       >
         Добавить подписку
@@ -119,7 +188,7 @@ export function Subscriptions() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setAdding(s)}
+                  onClick={() => onAdd(s)}
                   className="shrink-0 rounded-full bg-brand/10 px-3.5 py-1.5 text-[14px] font-semibold text-brand"
                 >
                   Добавить
@@ -142,11 +211,11 @@ export function Subscriptions() {
       )}
 
       {/* Список подписок */}
-      {sorted.length > 0 && (
+      {statuses.length > 0 && (
         <div>
           <SectionTitle>Мои подписки</SectionTitle>
           <Card className="!p-0">
-            {sorted.map((s, i) => (
+            {statuses.map((s, i) => (
               <div
                 key={s.rule.id}
                 className={`flex items-center gap-3 px-4 py-3 ${
@@ -155,7 +224,7 @@ export function Subscriptions() {
               >
                 <button
                   type="button"
-                  onClick={() => setOpenId(s.rule.id)}
+                  onClick={() => onOpen(s.rule.id)}
                   className="min-w-0 flex-1 text-left"
                 >
                   <div className="truncate text-[15px] font-medium">
@@ -173,7 +242,7 @@ export function Subscriptions() {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => paySubscription(s.rule.id)}
+                    onClick={() => onPay(s.rule.id)}
                     className={`shrink-0 rounded-full px-3.5 py-1.5 text-[14px] font-semibold ${
                       s.due
                         ? "bg-brand text-white"
