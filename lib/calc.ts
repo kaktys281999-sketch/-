@@ -361,6 +361,33 @@ export function accountMonthFlow(
   return { income, expense, net: income - expense };
 }
 
+// Темп расходов за месяц: средний в день и прогноз на конец месяца (run-rate).
+export interface ExpensePace {
+  daysElapsed: number;
+  daysInMonth: number;
+  avgDaily: number;
+  projected: number; // прогноз расхода на конец месяца
+}
+export function expensePace(
+  state: AppState,
+  month: string,
+  today: string
+): ExpensePace {
+  const daysInMonth = lastDayOfMonth(month);
+  const isCurrent = monthKeyFromISO(today) === month;
+  const daysElapsed = isCurrent
+    ? Math.min(daysInMonth, Number(today.slice(8, 10)))
+    : daysInMonth;
+  const expense = monthSummary(state, month).expense;
+  const avgDaily = expense / Math.max(1, daysElapsed);
+  return {
+    daysElapsed,
+    daysInMonth,
+    avgDaily: Math.round(avgDaily),
+    projected: isCurrent ? Math.round(avgDaily * daysInMonth) : expense,
+  };
+}
+
 // Динамика чистого оборота по счёту за n месяцев, заканчивая endMonth (старые → новые)
 export function accountTrend(
   state: AppState,

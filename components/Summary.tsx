@@ -15,6 +15,8 @@ import {
   accountMonthFlow,
   accountTrend,
   subscriptionStatuses,
+  subscriptionsMonthlyTotal,
+  expensePace,
 } from "@/lib/store";
 import {
   formatMoney,
@@ -22,6 +24,7 @@ import {
   formatDateShort,
   monthLabel,
   monthKey,
+  shiftMonth,
   daysUntil,
   relativeDayLabel,
   todayISO,
@@ -146,6 +149,22 @@ export function Summary({
   const goal = state.goal;
   const goalRemaining = goal.target - goal.saved;
   const goalPercent = goal.target > 0 ? (goal.saved / goal.target) * 100 : 0;
+
+  // Расширенная статистика месяца
+  const savingsRate =
+    summary.income > 0 ? Math.round((summary.diff / summary.income) * 100) : 0;
+  const incomeExpenseTotal = summary.income + summary.expense;
+  const prev = monthSummary(state, shiftMonth(month, -1));
+  const incomeDeltaPct =
+    prev.income > 0
+      ? Math.round(((summary.income - prev.income) / prev.income) * 100)
+      : null;
+  const expenseDeltaPct =
+    prev.expense > 0
+      ? Math.round(((summary.expense - prev.expense) / prev.expense) * 100)
+      : null;
+  const pace = expensePace(state, month, today);
+  const subsMonthly = subscriptionsMonthlyTotal(state);
 
   return (
     <div className="space-y-4 md:grid md:grid-cols-2 md:items-start md:gap-4 md:space-y-0">
@@ -284,29 +303,82 @@ export function Summary({
         </div>
       )}
 
-      {/* За месяц */}
-      <div>
+      {/* За месяц — расширенная статистика */}
+      <div className="md:col-span-2">
         <SectionTitle>{monthLabel(month)}</SectionTitle>
         <Card>
-          <div className="grid grid-cols-3 gap-2 text-center">
+          {/* Разница + норма сбережений */}
+          <div className="flex items-end justify-between gap-3">
             <div>
-              <div className="text-[13px] text-label-2">Доход</div>
-              <div className="mt-0.5 font-semibold text-emerald-600 dark:text-emerald-400">
-                {formatMoney(summary.income)}
+              <div className="text-[13px] text-label-2">Разница за месяц</div>
+              <div className="mt-0.5 text-[30px] font-bold leading-none tracking-tight">
+                <Money value={summary.diff} colorPositive showPlus />
               </div>
             </div>
-            <div>
-              <div className="text-[13px] text-label-2">Расход</div>
-              <div className="mt-0.5 font-semibold text-red-600 dark:text-red-400">
-                {formatMoney(summary.expense)}
+            {summary.income > 0 && (
+              <div className="text-right">
+                <div className="text-[13px] text-label-2">Норма сбережений</div>
+                <div
+                  className={`mt-0.5 text-[22px] font-bold leading-none ${
+                    savingsRate >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400"
+                  }`}
+                >
+                  {savingsRate}%
+                </div>
               </div>
+            )}
+          </div>
+
+          {/* Пропорция доход / расход */}
+          {incomeExpenseTotal > 0 && (
+            <div className="mt-3.5 flex h-2 overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/10">
+              <div
+                className="h-full bg-emerald-500"
+                style={{ width: `${(summary.income / incomeExpenseTotal) * 100}%` }}
+              />
+              <div
+                className="h-full bg-red-500"
+                style={{ width: `${(summary.expense / incomeExpenseTotal) * 100}%` }}
+              />
             </div>
-            <div>
-              <div className="text-[13px] text-label-2">Разница</div>
-              <div className="mt-0.5 font-semibold">
-                <Money value={summary.diff} />
-              </div>
-            </div>
+          )}
+          <div className="mt-2 flex items-center justify-between text-[13px]">
+            <span className="flex items-center gap-1.5">
+              <span className="text-emerald-600 dark:text-emerald-400">
+                ↑ {formatMoney(summary.income)}
+              </span>
+              <DeltaBadge pct={incomeDeltaPct} goodUp />
+            </span>
+            <span className="flex items-center gap-1.5">
+              <DeltaBadge pct={expenseDeltaPct} goodUp={false} />
+              <span className="text-red-600 dark:text-red-400">
+                ↓ {formatMoney(summary.expense)}
+              </span>
+            </span>
+          </div>
+
+          {/* Метрики */}
+          <div className="mt-4 grid grid-cols-3 gap-2 border-t border-[var(--separator)] pt-3.5 text-center">
+            <Metric
+              label="Средний/день"
+              value={formatMoney(pace.avgDaily)}
+            />
+            <Metric
+              label={isCurrentMonth ? "Прогноз расхода" : "Расход"}
+              value={formatMoney(pace.projected)}
+              hint={
+                isCurrentMonth
+                  ? `${pace.daysElapsed} из ${pace.daysInMonth} дн.`
+                  : undefined
+              }
+            />
+            <Metric
+              label="Подписки/мес"
+              value={formatMoney(subsMonthly)}
+              onClick={onOpenSubscriptions}
+            />
           </div>
         </Card>
       </div>
@@ -456,6 +528,58 @@ export function Summary({
         </div>
       )}
     </div>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  hint,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  onClick?: () => void;
+}) {
+  const inner = (
+    <>
+      <div className="text-[12px] text-label-2">{label}</div>
+      <div className="mt-0.5 text-[15px] font-semibold tabular-nums">{value}</div>
+      {hint && <div className="text-[11px] text-label-3">{hint}</div>}
+    </>
+  );
+  return onClick ? (
+    <button type="button" onClick={onClick} className="text-center active:opacity-60">
+      {inner}
+    </button>
+  ) : (
+    <div className="text-center">{inner}</div>
+  );
+}
+
+// Изменение к прошлому месяцу: ▲/▼ N%. goodUp — рост это хорошо (доход) или плохо (расход)
+function DeltaBadge({
+  pct,
+  goodUp,
+}: {
+  pct: number | null;
+  goodUp: boolean;
+}) {
+  if (pct === null || pct === 0) return null;
+  const up = pct > 0;
+  const good = up === goodUp;
+  return (
+    <span
+      className={`text-[12px] font-medium ${
+        good
+          ? "text-emerald-600 dark:text-emerald-400"
+          : "text-red-500 dark:text-red-400"
+      }`}
+    >
+      {up ? "▲" : "▼"}
+      {Math.abs(pct)}%
+    </span>
   );
 }
 

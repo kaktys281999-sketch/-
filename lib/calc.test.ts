@@ -22,6 +22,7 @@ import {
   isSubscriptionPaid,
   subscriptionStatuses,
   suggestSubscriptions,
+  expensePace,
 } from "./calc";
 import { AppState, Operation, Debt, Credit, RecurringRule } from "./types";
 
@@ -339,6 +340,19 @@ const sSugg = state({
 const sugg = suggestSubscriptions(sSugg);
 eq(sugg.length, 1, "одно предложение");
 eq([sugg[0].note, sugg[0].amount, sugg[0].dayOfMonth, sugg[0].months], ["Netflix", 500, 12, 2], "предложение Netflix");
+
+// ---- expensePace ----
+const sp = state({
+  operations: [
+    op({ type: "expense_personal", amount: 3000, date: "2026-06-10" }),
+  ],
+});
+// текущий месяц, сегодня 15 июня: прошло 15 из 30, средний 200/день, прогноз 6000
+const pace = expensePace(sp, "2026-06", "2026-06-15");
+eq([pace.daysElapsed, pace.daysInMonth, pace.avgDaily, pace.projected], [15, 30, 200, 6000], "темп расходов (текущий месяц)");
+// прошлый месяц: прогноз = факт
+const pacePast = expensePace(sp, "2026-05", "2026-06-15");
+eq(pacePast.projected, 0, "прошлый месяц — прогноз равен факту");
 
 // ---- итог ----
 console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);
