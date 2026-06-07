@@ -109,7 +109,7 @@ export function OperationForm({
       ? last.accountId
       : defaultAccount;
     return {
-      date: todayISO(),
+      date: last.date || todayISO(),
       type: last.type,
       category,
       amount: "",
@@ -203,6 +203,7 @@ export function OperationForm({
         type: draft.type,
         category: draft.category,
         accountId: draft.accountId,
+        date: draft.date,
       });
       setDraft(makeFresh());
     }
