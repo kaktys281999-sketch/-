@@ -6,13 +6,7 @@ import { TYPES, getTypeDef } from "@/lib/categories";
 import { useStore } from "@/lib/store";
 import { todayISO } from "@/lib/format";
 import { getLastUsed, setLastUsed } from "@/lib/lastUsed";
-
-// Цвета банков для точек у чипов счетов
-const ACCOUNT_COLORS: Record<string, string> = {
-  yandex: "#FC3F1D",
-  sber: "#21A038",
-  tinkoff: "#FFDD2D",
-};
+import { accountColor } from "@/lib/accounts";
 
 const chipCls = (active: boolean) =>
   `rounded-full px-3.5 py-2 text-sm font-medium transition ${
@@ -312,7 +306,7 @@ export function OperationForm({
             >
               <span
                 className="h-2.5 w-2.5 rounded-full ring-1 ring-black/5"
-                style={{ backgroundColor: ACCOUNT_COLORS[a.id] ?? "#94a3b8" }}
+                style={{ backgroundColor: accountColor(a.id) }}
               />
               {a.name}
             </button>

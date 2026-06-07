@@ -18,13 +18,7 @@ const EXPENSE_CATEGORIES = TYPES.filter(
 ).flatMap((t) => t.categories.map((c) => c.name));
 
 export function Settings() {
-  const {
-    state,
-    setAccountBalance,
-    updateGoal,
-    setPrimaryAccount,
-    resetAll,
-  } = useStore();
+  const { state, updateGoal, setPrimaryAccount, resetAll } = useStore();
   const primaryId =
     state.primaryAccountId ?? state.accounts[0]?.id ?? "";
 
@@ -40,16 +34,16 @@ export function Settings() {
       {/* Основной счёт */}
       <div>
         <SettingsTitle>Основной счёт</SettingsTitle>
-        <div className="grid grid-cols-3 gap-1 rounded-xl bg-black/[0.06] p-1 dark:bg-white/10">
+        <div className="flex flex-wrap gap-1.5">
           {state.accounts.map((a) => (
             <button
               key={a.id}
               type="button"
               onClick={() => setPrimaryAccount(a.id)}
-              className={`rounded-lg py-2 text-[14px] font-medium ${
+              className={`rounded-full px-3.5 py-2 text-[14px] font-medium transition ${
                 primaryId === a.id
-                  ? "bg-[var(--card)] text-slate-900 shadow-sm dark:text-white"
-                  : "text-label-2"
+                  ? "bg-brand text-white"
+                  : "bg-black/[0.06] text-slate-700 dark:bg-white/10 dark:text-slate-200"
               }`}
             >
               {a.name}
@@ -61,30 +55,7 @@ export function Settings() {
         </p>
       </div>
 
-      {/* Балансы счетов */}
-      <div>
-        <SettingsTitle>Балансы счетов</SettingsTitle>
-        <Card className="!p-0">
-          {state.accounts.map((a, i) => (
-            <div
-              key={a.id}
-              className={`flex items-center justify-between gap-3 px-4 py-2.5 ${
-                i > 0 ? "border-t border-[var(--separator)]" : ""
-              }`}
-            >
-              <label className="text-[15px]">{a.name}</label>
-              <NumberInput
-                value={Math.round(currentBalance(state, a.id))}
-                onCommit={(n) => setAccountBalance(a.id, n)}
-                className={`${fieldCls} w-32 text-right`}
-              />
-            </div>
-          ))}
-        </Card>
-        <p className="mt-1.5 px-1 text-[13px] text-label-2">
-          Это остаток «на сейчас». Операции дальше меняют его автоматически.
-        </p>
-      </div>
+      <AccountsCard fieldCls={fieldCls} />
 
       {/* Цель */}
       <div>
@@ -194,6 +165,71 @@ export function Settings() {
           CSV открывается в Excel и Google Таблицах — удобно как резервная копия.
         </p>
       </div>
+    </div>
+  );
+}
+
+function AccountsCard({ fieldCls }: { fieldCls: string }) {
+  const { state, setAccountBalance, addAccount, renameAccount } = useStore();
+  const [newName, setNewName] = useState("");
+
+  return (
+    <div>
+      <SettingsTitle>Счета</SettingsTitle>
+      <Card className="!p-0">
+        {state.accounts.map((a, i) => (
+          <div
+            key={a.id}
+            className={`flex items-center justify-between gap-3 px-4 py-2.5 ${
+              i > 0 ? "border-t border-[var(--separator)]" : ""
+            }`}
+          >
+            <input
+              type="text"
+              value={a.name}
+              onChange={(e) => renameAccount(a.id, e.target.value)}
+              aria-label="Название счёта"
+              className="min-w-0 flex-1 bg-transparent text-[15px] outline-none focus:ring-0"
+            />
+            <NumberInput
+              value={Math.round(currentBalance(state, a.id))}
+              onCommit={(n) => setAccountBalance(a.id, n)}
+              className={`${fieldCls} w-28 shrink-0 text-right`}
+            />
+          </div>
+        ))}
+        {/* Добавить счёт */}
+        <div className="flex items-center gap-2 border-t border-[var(--separator)] px-4 py-2.5">
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && newName.trim()) {
+                addAccount(newName);
+                setNewName("");
+              }
+            }}
+            placeholder="Новый счёт"
+            className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-label-3"
+          />
+          <button
+            type="button"
+            disabled={!newName.trim()}
+            onClick={() => {
+              addAccount(newName);
+              setNewName("");
+            }}
+            className="shrink-0 rounded-full bg-brand px-3.5 py-1.5 text-[14px] font-semibold text-white disabled:opacity-40"
+          >
+            Добавить
+          </button>
+        </div>
+      </Card>
+      <p className="mt-1.5 px-1 text-[13px] text-label-2">
+        Баланс — остаток «на сейчас», дальше меняется операциями. Имя счёта можно
+        изменить. Счёт нельзя удалить, чтобы не потерять связанные операции.
+      </p>
     </div>
   );
 }

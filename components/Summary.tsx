@@ -32,13 +32,7 @@ import {
 import { Card, Money, ProgressBar, Sparkline } from "./ui";
 import { SpendingBreakdown } from "./SpendingBreakdown";
 import { MonthlyTrend } from "./MonthlyTrend";
-
-// Фирменные цвета банков для точек у счетов
-const ACCOUNT_COLORS: Record<string, string> = {
-  yandex: "#FC3F1D",
-  sber: "#21A038",
-  tinkoff: "#FFDD2D",
-};
+import { accountColor } from "@/lib/accounts";
 
 export function Summary({
   month,
@@ -265,7 +259,7 @@ export function Summary({
             <span className="flex items-center gap-2.5 text-label-2">
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: ACCOUNT_COLORS[a.id] ?? "#94a3b8" }}
+                style={{ backgroundColor: accountColor(a.id) }}
               />
               {a.name}
             </span>
@@ -399,7 +393,7 @@ export function Summary({
                   <span className="flex items-center gap-2.5 text-label-2">
                     <span
                       className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: ACCOUNT_COLORS[a.id] ?? "#94a3b8" }}
+                      style={{ backgroundColor: accountColor(a.id) }}
                     />
                     {a.name}
                   </span>

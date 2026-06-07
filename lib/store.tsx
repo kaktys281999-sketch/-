@@ -25,6 +25,7 @@ import { todayISO, generatePaymentDates, monthKey } from "./format";
 import {
   operationDelta,
   debtAccountDelta,
+  creditAccountDelta,
   dueRecurringOperations,
 } from "./calc";
 // Денежные селекторы живут в ./calc (без React) — реэкспортируем для потребителей
@@ -50,6 +51,7 @@ const INITIAL_STATE: AppState = {
     { id: "yandex", name: "Яндекс банк", baseBalance: 11937 },
     { id: "sber", name: "Сбербанк", baseBalance: 879 },
     { id: "tinkoff", name: "Тинькофф", baseBalance: 344 },
+    { id: "cash", name: "Наличные", baseBalance: 0 },
   ],
   operations: [],
   credits: [
@@ -95,6 +97,8 @@ interface StoreContextValue {
   deleteOperation: (id: string) => void;
   restoreOperation: (id: string) => void;
   setAccountBalance: (id: string, currentBalance: number) => void;
+  addAccount: (name: string) => void;
+  renameAccount: (id: string, name: string) => void;
   updateGoal: (goal: Partial<Goal>) => void;
   // Кредиты
   addCredit: (
@@ -136,6 +140,17 @@ interface StoreContextValue {
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 
+// Гарантируем наличие счёта «Наличные» (миграция старых данных без него).
+// Не дублируем, если он уже есть по id или по названию.
+function ensureCashAccount(accounts: Account[]): Account[] {
+  const has = accounts.some(
+    (a) => a.id === "cash" || a.name.trim().toLowerCase() === "наличные"
+  );
+  return has
+    ? accounts
+    : [...accounts, { id: "cash", name: "Наличные", baseBalance: 0 }];
+}
+
 function loadState(): AppState {
   if (typeof window === "undefined") return INITIAL_STATE;
   try {
@@ -144,7 +159,7 @@ function loadState(): AppState {
     const parsed = JSON.parse(raw) as Partial<AppState>;
     // Мягкое слияние, чтобы новые поля не ломали старые данные
     return {
-      accounts: parsed.accounts ?? INITIAL_STATE.accounts,
+      accounts: ensureCashAccount(parsed.accounts ?? INITIAL_STATE.accounts),
       operations: parsed.operations ?? INITIAL_STATE.operations,
       credits: migrateCredits(parsed),
       goal: { ...INITIAL_STATE.goal, ...parsed.goal },
@@ -447,7 +462,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const debtDelta = (s.debts ?? [])
           .filter((d) => !d.deleted)
           .reduce((sum, d) => sum + debtAccountDelta(d, id), 0);
-        const deltaSum = opDelta + debtDelta;
+        const creditDelta = (s.credits ?? [])
+          .filter((c) => !c.deleted)
+          .reduce((sum, c) => sum + creditAccountDelta(c, id), 0);
+        const deltaSum = opDelta + debtDelta + creditDelta;
         return {
           ...s,
           ...touch({
@@ -457,6 +475,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }),
         };
       });
+    };
+
+    // Добавить новый счёт (с нулевым стартовым балансом)
+    const addAccount = (name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      setState((s) => ({
+        ...s,
+        ...touch({
+          accounts: [...s.accounts, { id: uid(), name: trimmed, baseBalance: 0 }],
+        }),
+      }));
+    };
+
+    // Переименовать счёт (id не меняется — операции не осиротеют)
+    const renameAccount = (id: string, name: string) => {
+      setState((s) => ({
+        ...s,
+        ...touch({
+          accounts: s.accounts.map((a) => (a.id === id ? { ...a, name } : a)),
+        }),
+      }));
     };
 
     const updateGoal = (goal: Partial<Goal>) => {
@@ -799,6 +839,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteOperation,
       restoreOperation,
       setAccountBalance,
+      addAccount,
+      renameAccount,
       updateGoal,
       addCredit,
       updateCredit,
