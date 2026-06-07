@@ -173,8 +173,8 @@ export default function Home() {
       </div>
 
       {/* ===== Телефон: нижняя панель вкладок ===== */}
-      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-[var(--separator)] bg-[var(--card)]/80 backdrop-blur-xl md:hidden">
-        <div className="mx-auto flex max-w-md px-1 pb-[env(safe-area-inset-bottom)]">
+      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-[var(--separator)] bg-[var(--card)]/85 backdrop-blur-xl md:hidden">
+        <div className="mx-auto flex max-w-md px-0.5 pb-[env(safe-area-inset-bottom)]">
           {TABS.map(({ id, label, Icon }) => {
             const active = tab === id;
             return (
@@ -182,14 +182,18 @@ export default function Home() {
                 key={id}
                 type="button"
                 onClick={() => setTab(id)}
-                className={`flex flex-1 flex-col items-center gap-0.5 py-2 transition-colors ${
-                  active
-                    ? "text-brand"
-                    : "text-slate-400 dark:text-slate-500"
+                aria-label={label}
+                aria-current={active ? "page" : undefined}
+                className={`flex min-w-0 flex-1 flex-col items-center gap-1 pb-1.5 pt-2 transition-colors ${
+                  active ? "text-brand" : "text-slate-400 dark:text-slate-500"
                 }`}
               >
-                <Icon className="h-[26px] w-[26px]" />
-                <span className="text-[10px] font-medium tracking-tight">
+                <Icon className="h-[23px] w-[23px]" />
+                <span
+                  className={`w-full truncate text-center text-[9.5px] leading-none tracking-tight ${
+                    active ? "font-semibold" : "font-medium"
+                  }`}
+                >
                   {label}
                 </span>
               </button>
