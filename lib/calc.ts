@@ -475,8 +475,13 @@ export function creditView(c: Credit): CreditView {
   const totalDue = c.payment * c.count;
   const paid = c.payments.reduce((sum, p) => sum + p.amount, 0);
   const remaining = Math.max(0, totalDue - paid);
-  const paidCount = Math.min(c.count, c.payments.length);
-  const isPaidOff = remaining <= 0 || paidCount >= c.count;
+  // «X из N» считаем по сумме (целые платежи), а не по числу записей —
+  // иначе частичные платежи ложно отметили бы кредит погашенным.
+  const paidCount =
+    c.payment > 0
+      ? Math.min(c.count, Math.floor(paid / c.payment))
+      : Math.min(c.count, c.payments.length);
+  const isPaidOff = remaining <= 0;
   const nextPaymentDate = isPaidOff ? null : c.paymentDates[paidCount] ?? null;
   return {
     credit: c,

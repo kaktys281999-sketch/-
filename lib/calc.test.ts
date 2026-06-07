@@ -25,6 +25,7 @@ import {
   expensePace,
   categoryBudget,
 } from "./calc";
+import { mergeStates } from "./sync";
 import { AppState, Operation, Debt, Credit, RecurringRule } from "./types";
 
 let passed = 0;
@@ -181,6 +182,15 @@ const cPaidOff = credit({ payment: 1000, count: 2, payments: [
   { id: "b", date: "2026-02-01", amount: 1000, accountId: "yandex" },
 ] });
 eq([creditView(cPaidOff).remaining, creditView(cPaidOff).isPaidOff, creditView(cPaidOff).nextPaymentDate], [0, true, null], "погашенный кредит");
+
+// частичные платежи не отмечают кредит погашенным (баг из аудита)
+const cPartial = credit({ payment: 1000, count: 3, payments: [
+  { id: "a", date: "2026-01-01", amount: 500, accountId: "yandex" },
+  { id: "b", date: "2026-02-01", amount: 500, accountId: "yandex" },
+  { id: "c", date: "2026-03-01", amount: 500, accountId: "yandex" },
+] });
+const cvPartial = creditView(cPartial);
+eq([cvPartial.remaining, cvPartial.isPaidOff, cvPartial.paidCount], [1500, false, 1], "частичные платежи: не погашен, 1 из 3 по сумме");
 
 // ---- creditAccountDelta (платёж списывает со счёта) ----
 eq(creditAccountDelta(c1, "yandex"), -5000, "платёж по кредиту списан с Яндекса");
@@ -389,6 +399,61 @@ const bOver = categoryBudget(
   "2026-06"
 );
 eq([bOver.carry, bOver.effective, bOver.remaining], [-2000, 13000, 12000], "перерасход переносится в минус");
+
+// ---- mergeStates: счёт, добавленный на «старом» устройстве, не теряется ----
+const local = state({
+  updatedAt: 100,
+  accounts: [
+    { id: "yandex", name: "Яндекс", baseBalance: 10000 },
+    { id: "cash", name: "Наличные", baseBalance: 500 }, // добавлен локально
+  ],
+});
+const remote = state({
+  updatedAt: 200, // «свежее» — выиграет по балансам
+  accounts: [
+    { id: "yandex", name: "Яндекс", baseBalance: 12345 },
+    { id: "newphone", name: "Тинькофф", baseBalance: 700 }, // добавлен на другом
+  ],
+});
+const merged = mergeStates(local, remote);
+const mIds = merged.accounts.map((a) => a.id).sort();
+eq(mIds, ["cash", "newphone", "yandex"], "слияние счетов объединяет все id");
+eq(merged.accounts.find((a) => a.id === "yandex")!.baseBalance, 12345, "по общему счёту выигрывает свежий документ");
+
+// ---- интеграционные инварианты на «богатом» состоянии ----
+const rich = state({
+  accounts: [
+    { id: "yandex", name: "Я", baseBalance: 10000 },
+    { id: "sber", name: "С", baseBalance: 5000 },
+    { id: "cash", name: "Наличные", baseBalance: 0 },
+  ],
+  operations: [
+    op({ type: "income", category: "Прочий доход", amount: 50000, accountId: "yandex", date: "2026-06-02" }),
+    op({ type: "expense_personal", amount: 4000, accountId: "yandex", date: "2026-06-03" }),
+    op({ type: "expense_work", category: "Profi", amount: 2000, accountId: "sber", date: "2026-06-05" }),
+    op({ amount: 999, accountId: "cash", date: "2026-06-06", deleted: true }),
+  ],
+  credits: [credit({ payment: 10921, count: 3, accountId: "yandex", payments: [{ id: "p", date: "2026-06-26", amount: 10921, accountId: "yandex" }] })],
+  debts: [
+    debt({ direction: "owed_to_me", accountId: "sber", amount: 1500, payments: [{ id: "x", date: "2026-05-20", amount: 500, accountId: "yandex" }] }),
+    debt({ direction: "i_owe", accountId: "cash", amount: 2000 }),
+  ],
+});
+const sumBal = rich.accounts.reduce((s, a) => s + currentBalance(rich, a.id), 0);
+eq(Math.round(sumBal), Math.round(totalOnHand(rich)), "инвариант: на руках = сумма счетов");
+eq(
+  Math.round(realPosition(rich)),
+  Math.round(totalOnHand(rich) - creditInfo(rich).remaining + debtsSummary(rich).owedToMe - debtsSummary(rich).iOwe),
+  "инвариант: реальная позиция = формула"
+);
+const noNaN = [
+  totalOnHand(rich),
+  realPosition(rich),
+  ...rich.accounts.map((a) => currentBalance(rich, a.id)),
+  creditInfo(rich).remaining,
+  expensePace(rich, "2026-06", "2026-06-15").projected,
+].every((n) => Number.isFinite(n));
+eq(noNaN, true, "инвариант: нет NaN/∞ в ключевых числах");
 
 // ---- итог ----
 console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);

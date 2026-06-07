@@ -134,9 +134,18 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
 
   const remoteNewer = (remote.updatedAt ?? 0) > (local.updatedAt ?? 0);
   const base = remoteNewer ? remote : local;
+  const other = remoteNewer ? local : remote;
+
+  // Счета объединяем по id: версия из base (свежего документа) выигрывает по
+  // имени/балансу, но счёт, добавленный на другом устройстве, не теряется.
+  const baseAccIds = new Set(base.accounts.map((a) => a.id));
+  const accounts = [
+    ...base.accounts,
+    ...(other.accounts ?? []).filter((a) => !baseAccIds.has(a.id)),
+  ];
 
   return {
-    accounts: base.accounts,
+    accounts,
     goal: base.goal,
     primaryAccountId: base.primaryAccountId,
     budgets: base.budgets ?? {},

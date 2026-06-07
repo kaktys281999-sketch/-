@@ -7,7 +7,8 @@ import {
   subscriptionsMonthlyTotal,
   subscriptionSpent,
   suggestSubscriptions,
-  activeSubscriptions,
+  subscriptionRules,
+  isSubscriptionPaid,
   type SubSuggestion,
 } from "@/lib/store";
 import { OpType, RecurringRule } from "@/lib/types";
@@ -30,6 +31,14 @@ function typeForCategory(cat: string): OpType {
   return EXPENSE_CATS.find((c) => c.name === cat)?.type ?? "expense_personal";
 }
 
+type SubItem = {
+  rule: RecurringRule;
+  active: boolean;
+  paid: boolean;
+  due: boolean;
+  upcoming: boolean;
+};
+
 export function Subscriptions() {
   const { state, paySubscription } = useStore();
   const [adding, setAdding] = useState<Partial<SubSuggestion> | null>(null);
@@ -49,8 +58,9 @@ export function Subscriptions() {
   const spent = subscriptionSpent(state, month);
   const suggestions = useMemo(() => suggestSubscriptions(state), [state]);
 
+  // Открыть можно любую подписку, в т.ч. выключенную (чтобы снова включить)
   const openRule = openId
-    ? activeSubscriptions(state).find((r) => r.id === openId) ?? null
+    ? subscriptionRules(state).find((r) => r.id === openId) ?? null
     : null;
 
   const accountName = (id: string) =>
@@ -63,11 +73,24 @@ export function Subscriptions() {
     return <SubDetail rule={openRule} onClose={() => setOpenId(null)} />;
   }
 
-  // активные сверху: сначала «оплатить», затем предстоящие, затем оплаченные
-  const order = (s: (typeof statuses)[number]) =>
-    s.due ? 0 : s.upcoming ? 1 : 2;
-  const sorted = [...statuses].sort(
-    (a, b) => order(a) - order(b) || a.date.localeCompare(b.date)
+  // Список всех подписок (включая выключенные — они показываются приглушённо).
+  // Статус оплаты берём из активных, для выключенных считаем напрямую.
+  const statusById = new Map(statuses.map((s) => [s.rule.id, s]));
+  const items: SubItem[] = subscriptionRules(state).map((r) => {
+    const st = statusById.get(r.id);
+    return {
+      rule: r,
+      active: r.active !== false,
+      paid: st ? st.paid : isSubscriptionPaid(state, r.id, month),
+      due: st ? st.due : false,
+      upcoming: st ? st.upcoming : false,
+    };
+  });
+  const order = (s: SubItem) =>
+    !s.active ? 3 : s.due ? 0 : s.upcoming ? 1 : 2;
+  const sorted = items.sort(
+    (a, b) =>
+      order(a) - order(b) || a.rule.dayOfMonth - b.rule.dayOfMonth
   );
 
   const fieldCls =
@@ -102,7 +125,7 @@ export function Subscriptions() {
         <RecurringSettings fieldCls={fieldCls} />
       ) : (
         <SubsContent
-          statuses={sorted}
+          items={sorted}
           monthly={monthly}
           spent={spent}
           suggestions={suggestions}
@@ -117,7 +140,7 @@ export function Subscriptions() {
 }
 
 function SubsContent({
-  statuses,
+  items,
   monthly,
   spent,
   suggestions,
@@ -126,7 +149,7 @@ function SubsContent({
   onOpen,
   onPay,
 }: {
-  statuses: ReturnType<typeof subscriptionStatuses>;
+  items: SubItem[];
   monthly: number;
   spent: number;
   suggestions: SubSuggestion[];
@@ -202,7 +225,7 @@ function SubsContent({
         </div>
       )}
 
-      {statuses.length === 0 && suggestions.length === 0 && (
+      {items.length === 0 && suggestions.length === 0 && (
         <Card>
           <p className="py-8 text-center text-[15px] text-label-3">
             Подписок пока нет
@@ -211,16 +234,16 @@ function SubsContent({
       )}
 
       {/* Список подписок */}
-      {statuses.length > 0 && (
+      {items.length > 0 && (
         <div>
           <SectionTitle>Мои подписки</SectionTitle>
           <Card className="!p-0">
-            {statuses.map((s, i) => (
+            {items.map((s, i) => (
               <div
                 key={s.rule.id}
                 className={`flex items-center gap-3 px-4 py-3 ${
                   i > 0 ? "border-t border-[var(--separator)]" : ""
-                }`}
+                } ${s.active ? "" : "opacity-50"}`}
               >
                 <button
                   type="button"
@@ -235,7 +258,9 @@ function SubsContent({
                     {accountName(s.rule.accountId)}
                   </div>
                 </button>
-                {s.paid ? (
+                {!s.active ? (
+                  <span className="shrink-0 text-[13px] text-label-3">выключена</span>
+                ) : s.paid ? (
                   <span className="shrink-0 rounded-full bg-emerald-100 px-3 py-1.5 text-[13px] font-medium text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
                     оплачено
                   </span>
