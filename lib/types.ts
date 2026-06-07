@@ -138,6 +138,8 @@ export interface AppState {
   primaryAccountId?: string;
   // месячные лимиты расходов по категориям (необязательно для старых данных)
   budgets?: Budgets;
+  // переносить неизрасходованный остаток бюджета на следующий месяц
+  budgetRollover?: boolean;
   // шаблоны частых операций
   templates?: Template[];
   // регулярные операции

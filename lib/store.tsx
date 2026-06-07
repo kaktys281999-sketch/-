@@ -73,6 +73,7 @@ const INITIAL_STATE: AppState = {
   },
   primaryAccountId: "yandex",
   budgets: {},
+  budgetRollover: false,
   templates: [],
   recurring: [],
   debts: [],
@@ -105,6 +106,7 @@ interface StoreContextValue {
   deleteCreditPayment: (creditId: string, paymentId: string) => void;
   setPrimaryAccount: (id: string) => void;
   setBudget: (category: string, limit: number) => void;
+  setBudgetRollover: (on: boolean) => void;
   addTemplate: (t: Omit<Template, "id">) => void;
   deleteTemplate: (id: string) => void;
   // Регулярные операции
@@ -148,6 +150,7 @@ function loadState(): AppState {
       goal: { ...INITIAL_STATE.goal, ...parsed.goal },
       primaryAccountId: parsed.primaryAccountId ?? INITIAL_STATE.primaryAccountId,
       budgets: parsed.budgets ?? {},
+      budgetRollover: parsed.budgetRollover ?? false,
       templates: parsed.templates ?? [],
       recurring: parsed.recurring ?? [],
       debts: parsed.debts ?? [],
@@ -548,6 +551,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setState((s) => ({ ...s, ...touch({ primaryAccountId: id }) }));
     };
 
+    const setBudgetRollover = (on: boolean) => {
+      setState((s) => ({ ...s, ...touch({ budgetRollover: on }) }));
+    };
+
     // Установить/убрать месячный лимит по категории (0 — убрать)
     const setBudget = (category: string, limit: number) => {
       setState((s) => {
@@ -800,6 +807,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       deleteCreditPayment,
       setPrimaryAccount,
       setBudget,
+      setBudgetRollover,
       addTemplate,
       deleteTemplate,
       addRecurring,

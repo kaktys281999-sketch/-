@@ -23,6 +23,7 @@ import {
   subscriptionStatuses,
   suggestSubscriptions,
   expensePace,
+  categoryBudget,
 } from "./calc";
 import { AppState, Operation, Debt, Credit, RecurringRule } from "./types";
 
@@ -353,6 +354,41 @@ eq([pace.daysElapsed, pace.daysInMonth, pace.avgDaily, pace.projected], [15, 30,
 // прошлый месяц: прогноз = факт
 const pacePast = expensePace(sp, "2026-05", "2026-06-15");
 eq(pacePast.projected, 0, "прошлый месяц — прогноз равен факту");
+
+// ---- categoryBudget (перенос за один месяц) ----
+const CAT = "Продукты / еда / вода";
+const bd = (extra: Partial<AppState>) =>
+  state({
+    budgets: { [CAT]: 15000 },
+    operations: [
+      op({ category: CAT, amount: 12000, date: "2026-05-20" }), // прошлый месяц
+      op({ category: CAT, amount: 4000, date: "2026-06-10" }), // текущий
+    ],
+    ...extra,
+  });
+
+// без переноса: лимит 15000, потрачено 4000, осталось 11000
+const bNo = categoryBudget(bd({ budgetRollover: false }), CAT, "2026-06");
+eq([bNo.base, bNo.carry, bNo.effective, bNo.spent, bNo.remaining], [15000, 0, 15000, 4000, 11000], "бюджет без переноса");
+
+// с переносом: остаток мая 3000 → доступно 18000, осталось 14000
+const bYes = categoryBudget(bd({ budgetRollover: true }), CAT, "2026-06");
+eq([bYes.carry, bYes.effective, bYes.remaining], [3000, 18000, 14000], "перенос остатка +3000");
+
+// перерасход в прошлом месяце уменьшает лимит
+const bOver = categoryBudget(
+  state({
+    budgetRollover: true,
+    budgets: { [CAT]: 15000 },
+    operations: [
+      op({ category: CAT, amount: 17000, date: "2026-05-20" }),
+      op({ category: CAT, amount: 1000, date: "2026-06-10" }),
+    ],
+  }),
+  CAT,
+  "2026-06"
+);
+eq([bOver.carry, bOver.effective, bOver.remaining], [-2000, 13000, 12000], "перерасход переносится в минус");
 
 // ---- итог ----
 console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);

@@ -2,6 +2,7 @@
 
 import { AppState } from "@/lib/types";
 import { monthKeyFromISO, formatMoney } from "@/lib/format";
+import { categoryBudget } from "@/lib/store";
 import { Card } from "./ui";
 
 // Расходы по категориям за месяц (личное + рабочее)
@@ -49,12 +50,12 @@ export function SpendingBreakdown({
       ) : (
         <div className="space-y-3">
           {rows.map((r, i) => {
-            const budget = state.budgets?.[r.category] ?? 0;
-            const hasBudget = budget > 0;
-            const over = hasBudget && r.amount > budget;
-            // ширина: к лимиту (если задан) иначе доля от общих расходов
+            const b = categoryBudget(state, r.category, month);
+            const hasBudget = b.base > 0;
+            const over = hasBudget && b.spent > b.effective;
+            // ширина: к доступному лимиту (если задан) иначе доля от общих расходов
             const fill = hasBudget
-              ? Math.min(100, (r.amount / budget) * 100)
+              ? Math.min(100, b.effective > 0 ? (b.spent / b.effective) * 100 : 100)
               : total > 0
               ? (r.amount / total) * 100
               : 0;
@@ -67,7 +68,7 @@ export function SpendingBreakdown({
                   <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
                     {hasBudget ? (
                       <>
-                        {formatMoney(r.amount)}{" "}
+                        {formatMoney(b.spent)}{" "}
                         <span
                           className={
                             over
@@ -75,7 +76,7 @@ export function SpendingBreakdown({
                               : "text-slate-400 dark:text-slate-500"
                           }
                         >
-                          / {formatMoney(budget)}
+                          / {formatMoney(b.effective)}
                         </span>
                       </>
                     ) : (
@@ -97,9 +98,34 @@ export function SpendingBreakdown({
                     }}
                   />
                 </div>
-                {over && (
-                  <div className="mt-0.5 text-xs text-red-600 dark:text-red-400">
-                    Превышен на {formatMoney(r.amount - budget)}
+                {hasBudget && (
+                  <div className="mt-0.5 flex justify-between text-xs">
+                    {b.rollover && b.carry !== 0 ? (
+                      <span
+                        className={
+                          b.carry > 0
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-red-500 dark:text-red-400"
+                        }
+                      >
+                        {b.carry > 0
+                          ? `+${formatMoney(b.carry)} перенос`
+                          : `${formatMoney(b.carry)} перерасход`}
+                      </span>
+                    ) : (
+                      <span />
+                    )}
+                    <span
+                      className={
+                        over
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-slate-400 dark:text-slate-500"
+                      }
+                    >
+                      {over
+                        ? `превышен на ${formatMoney(b.spent - b.effective)}`
+                        : `осталось ${formatMoney(b.remaining)}`}
+                    </span>
                   </div>
                 )}
               </div>

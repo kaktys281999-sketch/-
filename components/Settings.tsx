@@ -202,10 +202,24 @@ export function Settings() {
 }
 
 function BudgetsCard({ fieldCls }: { fieldCls: string }) {
-  const { state, setBudget } = useStore();
+  const { state, setBudget, setBudgetRollover } = useStore();
   return (
     <div>
       <SettingsTitle>Бюджеты по категориям</SettingsTitle>
+      <Card className="mb-2 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[15px]">Переносить остаток</div>
+          <div className="text-[13px] text-label-2">
+            Неизрасходованное за прошлый месяц добавится к лимиту
+          </div>
+        </div>
+        <input
+          type="checkbox"
+          checked={!!state.budgetRollover}
+          onChange={(e) => setBudgetRollover(e.target.checked)}
+          className="h-5 w-5 shrink-0 accent-brand"
+        />
+      </Card>
       <Card className="!p-0">
         {EXPENSE_CATEGORIES.map((cat, i) => (
           <div

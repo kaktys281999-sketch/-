@@ -18,6 +18,7 @@ export interface SyncPayload {
   goal: AppState["goal"];
   primaryAccountId?: AppState["primaryAccountId"];
   budgets?: AppState["budgets"];
+  budgetRollover?: AppState["budgetRollover"];
   templates?: AppState["templates"];
   recurring?: AppState["recurring"];
   debts?: AppState["debts"];
@@ -59,6 +60,7 @@ export function toPayload(s: AppState): SyncPayload {
     goal: s.goal,
     primaryAccountId: s.primaryAccountId,
     budgets: s.budgets ?? {},
+    budgetRollover: s.budgetRollover ?? false,
     templates: s.templates ?? [],
     recurring: s.recurring ?? [],
     debts: s.debts ?? [],
@@ -73,6 +75,7 @@ export function fromPayload(p: SyncPayload): AppState {
     goal: p.goal,
     primaryAccountId: p.primaryAccountId,
     budgets: p.budgets ?? {},
+    budgetRollover: p.budgetRollover ?? false,
     templates: p.templates ?? [],
     recurring: p.recurring ?? [],
     debts: p.debts ?? [],
@@ -137,6 +140,7 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
     goal: base.goal,
     primaryAccountId: base.primaryAccountId,
     budgets: base.budgets ?? {},
+    budgetRollover: base.budgetRollover ?? false,
     templates: base.templates ?? [],
     recurring,
     operations,

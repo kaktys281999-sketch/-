@@ -361,6 +361,47 @@ export function accountMonthFlow(
   return { income, expense, net: income - expense };
 }
 
+// Расход по конкретной категории за месяц
+export function categoryExpense(
+  state: AppState,
+  category: string,
+  month: string
+): number {
+  let sum = 0;
+  for (const o of state.operations) {
+    if (o.deleted) continue;
+    if (o.type !== "expense_personal" && o.type !== "expense_work") continue;
+    if (o.category !== category) continue;
+    if (monthKeyFromISO(o.date) !== month) continue;
+    sum += o.amount;
+  }
+  return sum;
+}
+
+// Бюджет категории за месяц с учётом переноса остатка за один месяц.
+export interface CategoryBudget {
+  base: number; // базовый лимит
+  carry: number; // перенос с прошлого месяца (+остаток / −перерасход)
+  effective: number; // доступно в этом месяце = base + carry
+  spent: number; // потрачено в этом месяце
+  remaining: number; // осталось = effective − spent
+  rollover: boolean; // перенос включён для этой категории
+}
+export function categoryBudget(
+  state: AppState,
+  category: string,
+  month: string
+): CategoryBudget {
+  const base = state.budgets?.[category] ?? 0;
+  const spent = categoryExpense(state, category, month);
+  const rollover = !!state.budgetRollover && base > 0;
+  const carry = rollover
+    ? base - categoryExpense(state, category, shiftMonth(month, -1))
+    : 0;
+  const effective = base + carry;
+  return { base, carry, effective, spent, remaining: effective - spent, rollover };
+}
+
 // Темп расходов за месяц: средний в день и прогноз на конец месяца (run-rate).
 export interface ExpensePace {
   daysElapsed: number;
