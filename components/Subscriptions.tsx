@@ -17,6 +17,7 @@ import {
   formatMoney,
   formatDateShort,
   monthKey,
+  monthLabel,
   todayISO,
 } from "@/lib/format";
 import { Card, NumberInput } from "./ui";
@@ -475,7 +476,15 @@ function SubDetail({ rule, onClose }: { rule: RecurringRule; onClose: () => void
     deleteRecurring,
   } = useStore();
   const month = monthKey(new Date());
-  const [payAccount, setPayAccount] = useState(rule.accountId);
+  const paidOp = state.operations.find(
+    (o) => o.id === `rec-${rule.id}-${month}` && !o.deleted
+  );
+  const paid = !!paidOp;
+  const [payAccount, setPayAccount] = useState(paidOp?.accountId ?? rule.accountId);
+  const [payAmount, setPayAmount] = useState(
+    String(paidOp?.amount ?? rule.amount)
+  );
+  const [payError, setPayError] = useState(false);
   const [editing, setEditing] = useState(false);
 
   const accountName = (id: string) =>
@@ -483,9 +492,20 @@ function SubDetail({ rule, onClose }: { rule: RecurringRule; onClose: () => void
   const fieldCls =
     "w-full rounded-xl bg-black/[0.04] px-3.5 py-2.5 outline-none focus:ring-2 focus:ring-brand/40 dark:bg-white/[0.06] dark:text-slate-100";
 
-  const paid = state.operations.some(
-    (o) => o.id === `rec-${rule.id}-${month}` && !o.deleted
-  );
+  function pay() {
+    const sum = Math.abs(Number(payAmount.replace(/\s/g, "").replace(",", ".")));
+    if (!sum || Number.isNaN(sum)) {
+      setPayError(true);
+      return;
+    }
+    // при правке сохраняем исходную дату платежа, чтобы он не «переехал»
+    paySubscription(rule.id, {
+      amount: sum,
+      accountId: payAccount,
+      date: paidOp?.date,
+    });
+    setPayError(false);
+  }
   const history = state.operations
     .filter((o) => !o.deleted && o.recurringId === rule.id)
     .sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -520,52 +540,83 @@ function SubDetail({ rule, onClose }: { rule: RecurringRule; onClose: () => void
         </div>
       </Card>
 
-      {/* Оплата за текущий месяц */}
+      {/* Оплата за текущий месяц (сумма редактируется — может отличаться от типовой) */}
       {!editing && (
         <Card>
-          <div className="mb-2 text-[13px] font-medium uppercase tracking-wide text-label-2">
-            {monthKey(new Date())} · оплата
-          </div>
-          {paid ? (
-            <div className="flex items-center justify-between">
-              <span className="text-[15px] text-emerald-600 dark:text-emerald-400">
-                Оплачено в этом месяце
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[13px] font-medium uppercase tracking-wide text-label-2">
+              {monthLabel(month)} · оплата
+            </span>
+            {paid && (
+              <span className="text-[13px] font-medium text-emerald-600 dark:text-emerald-400">
+                оплачено
               </span>
+            )}
+          </div>
+
+          <label className="mb-1 block text-[13px] text-label-2">
+            Сумма в этом месяце
+          </label>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            value={payAmount}
+            onChange={(e) => {
+              if (payError) setPayError(false);
+              setPayAmount(e.target.value);
+            }}
+            onWheel={(e) => e.currentTarget.blur()}
+            placeholder={formatMoney(rule.amount)}
+            className={fieldCls}
+          />
+          {rule.amount > 0 && (
+            <div className="mt-1 text-[12px] text-label-3">
+              Типовая: {formatMoney(rule.amount)} · меняется только этот месяц
+            </div>
+          )}
+
+          <div className="mt-2 flex flex-wrap gap-2">
+            {state.accounts.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => setPayAccount(a.id)}
+                className={`rounded-full px-3 py-1.5 text-[13px] font-medium ${
+                  payAccount === a.id
+                    ? "bg-brand text-white"
+                    : "bg-black/[0.06] text-slate-700 dark:bg-white/10 dark:text-slate-200"
+                }`}
+              >
+                {a.name}
+              </button>
+            ))}
+          </div>
+
+          {payError && (
+            <p className="mt-2 text-[13px] font-medium text-red-600 dark:text-red-400">
+              Введите сумму больше нуля
+            </p>
+          )}
+
+          <div className="mt-3 flex gap-2.5">
+            <button
+              type="button"
+              onClick={pay}
+              className="flex-[2] rounded-xl bg-brand py-3 text-[15px] font-semibold text-white"
+            >
+              {paid ? "Сохранить сумму" : "Оплатить"}
+            </button>
+            {paid && (
               <button
                 type="button"
                 onClick={() => unpaySubscription(rule.id, month)}
-                className="text-[14px] font-medium text-red-600 dark:text-red-400"
+                className="flex-1 rounded-xl bg-black/[0.06] py-3 text-[15px] font-semibold text-red-600 dark:bg-white/10 dark:text-red-400"
               >
                 Отменить
               </button>
-            </div>
-          ) : (
-            <>
-              <div className="mb-2 flex flex-wrap gap-2">
-                {state.accounts.map((a) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={() => setPayAccount(a.id)}
-                    className={`rounded-full px-3 py-1.5 text-[13px] font-medium ${
-                      payAccount === a.id
-                        ? "bg-brand text-white"
-                        : "bg-black/[0.06] text-slate-700 dark:bg-white/10 dark:text-slate-200"
-                    }`}
-                  >
-                    {a.name}
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => paySubscription(rule.id, { accountId: payAccount })}
-                className="w-full rounded-xl bg-brand py-3 text-[15px] font-semibold text-white"
-              >
-                Оплатить {formatMoney(rule.amount)}
-              </button>
-            </>
-          )}
+            )}
+          </div>
         </Card>
       )}
 
