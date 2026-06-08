@@ -102,6 +102,7 @@ function credit(p: Partial<Credit>): Credit {
 // ---- operationDelta ----
 eq(operationDelta(op({ type: "income", category: "Прочий доход", amount: 100 })), 100, "доход +");
 eq(operationDelta(op({ type: "expense_personal", amount: 100 })), -100, "расход личный −");
+eq(operationDelta(op({ type: "expense_personal", category: "Рестораны и кафе", amount: 100 })), -100, "Рестораны и кафе — расход −");
 eq(operationDelta(op({ type: "expense_work", amount: 100 })), -100, "расход рабочий −");
 eq(operationDelta(op({ type: "credit_loan", category: "Получен кредит", amount: 100 })), 100, "получен кредит +");
 eq(operationDelta(op({ type: "credit_loan", category: "Платёж по кредиту", amount: 100 })), -100, "платёж по кредиту −");

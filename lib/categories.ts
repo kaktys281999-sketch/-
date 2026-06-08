@@ -27,6 +27,7 @@ export const TYPES: TypeDef[] = [
     label: "Расход — личное",
     categories: [
       { name: "Продукты / еда / вода", sign: -1 },
+      { name: "Рестораны и кафе", sign: -1 },
       { name: "Проезд / транспорт", sign: -1 },
       { name: "Мобильный / подписки", sign: -1 },
       { name: "Остальное / разное", sign: -1 },
