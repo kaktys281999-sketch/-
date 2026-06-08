@@ -20,6 +20,7 @@ export interface SyncPayload {
   budgets?: AppState["budgets"];
   budgetRollover?: AppState["budgetRollover"];
   templates?: AppState["templates"];
+  seededTransportTpl?: AppState["seededTransportTpl"];
   recurring?: AppState["recurring"];
   debts?: AppState["debts"];
 }
@@ -62,6 +63,7 @@ export function toPayload(s: AppState): SyncPayload {
     budgets: s.budgets ?? {},
     budgetRollover: s.budgetRollover ?? false,
     templates: s.templates ?? [],
+    seededTransportTpl: s.seededTransportTpl ?? false,
     recurring: s.recurring ?? [],
     debts: s.debts ?? [],
   };
@@ -77,6 +79,7 @@ export function fromPayload(p: SyncPayload): AppState {
     budgets: p.budgets ?? {},
     budgetRollover: p.budgetRollover ?? false,
     templates: p.templates ?? [],
+    seededTransportTpl: p.seededTransportTpl ?? false,
     recurring: p.recurring ?? [],
     debts: p.debts ?? [],
     updatedAt: p.updatedAt ?? 0,
@@ -151,6 +154,7 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
     budgets: base.budgets ?? {},
     budgetRollover: base.budgetRollover ?? false,
     templates: base.templates ?? [],
+    seededTransportTpl: base.seededTransportTpl ?? false,
     recurring,
     operations,
     debts,

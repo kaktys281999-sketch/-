@@ -142,6 +142,8 @@ export interface AppState {
   budgetRollover?: boolean;
   // шаблоны частых операций
   templates?: Template[];
+  // одноразовая подсадка шаблонов транспорта выполнена
+  seededTransportTpl?: boolean;
   // регулярные операции
   recurring?: RecurringRule[];
   // долги (мне должны / я должен)

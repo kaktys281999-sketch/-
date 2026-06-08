@@ -45,6 +45,16 @@ import {
 const STORAGE_KEY = "finance-tracker-v1";
 const SYNC_KEY = "finance-tracker-sync-v1";
 
+// Быстрые шаблоны видов транспорта: одна категория «Проезд / транспорт»,
+// вид — в заметке, сумма спрашивается при добавлении. Детерминированные id.
+function transportTemplates(accountId: string): Template[] {
+  return [
+    { id: "tpl-taxi", title: "Такси", type: "expense_personal", category: "Проезд / транспорт", amount: 0, accountId, note: "Такси" },
+    { id: "tpl-scooter", title: "Самокат", type: "expense_personal", category: "Проезд / транспорт", amount: 0, accountId, note: "Самокат" },
+    { id: "tpl-bus", title: "Автобус", type: "expense_personal", category: "Проезд / транспорт", amount: 0, accountId, note: "Автобус" },
+  ];
+}
+
 // Начальное состояние согласно ТЗ
 const INITIAL_STATE: AppState = {
   accounts: [
@@ -76,7 +86,8 @@ const INITIAL_STATE: AppState = {
   primaryAccountId: "yandex",
   budgets: {},
   budgetRollover: false,
-  templates: [],
+  templates: transportTemplates("yandex"),
+  seededTransportTpl: true,
   recurring: [],
   debts: [],
   updatedAt: 0,
@@ -157,6 +168,20 @@ function loadState(): AppState {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return INITIAL_STATE;
     const parsed = JSON.parse(raw) as Partial<AppState>;
+    // Разовая подсадка шаблонов транспорта (только если ещё не делали —
+    // удалённые пользователем шаблоны не возвращаем).
+    const primary =
+      parsed.primaryAccountId ?? INITIAL_STATE.primaryAccountId ?? "yandex";
+    let templates = parsed.templates ?? [];
+    let seededTransportTpl = parsed.seededTransportTpl ?? false;
+    if (!seededTransportTpl) {
+      const ids = new Set(templates.map((t) => t.id));
+      templates = [
+        ...templates,
+        ...transportTemplates(primary).filter((t) => !ids.has(t.id)),
+      ];
+      seededTransportTpl = true;
+    }
     // Мягкое слияние, чтобы новые поля не ломали старые данные
     return {
       accounts: ensureCashAccount(parsed.accounts ?? INITIAL_STATE.accounts),
@@ -166,7 +191,8 @@ function loadState(): AppState {
       primaryAccountId: parsed.primaryAccountId ?? INITIAL_STATE.primaryAccountId,
       budgets: parsed.budgets ?? {},
       budgetRollover: parsed.budgetRollover ?? false,
-      templates: parsed.templates ?? [],
+      templates,
+      seededTransportTpl,
       recurring: parsed.recurring ?? [],
       debts: parsed.debts ?? [],
       updatedAt: parsed.updatedAt ?? 0,

@@ -151,11 +151,36 @@ export function Operations({ month }: { month: string }) {
         placeholder="Поиск: категория, заметка, сумма…"
       />
 
-      {q && (
-        <div className="px-1 text-[13px] text-label-2">
-          Поиск по всем месяцам · найдено: {monthOps.length}
-        </div>
-      )}
+      {q &&
+        (() => {
+          const spent = monthOps
+            .filter((o) => o.type === "expense_personal" || o.type === "expense_work")
+            .reduce((s, o) => s + o.amount, 0);
+          const income = monthOps
+            .filter((o) => o.type === "income")
+            .reduce((s, o) => s + o.amount, 0);
+          return (
+            <div className="px-1 text-[13px] text-label-2">
+              По всем месяцам · найдено: {monthOps.length}
+              {spent > 0 && (
+                <>
+                  {" · расход "}
+                  <span className="font-medium text-red-600 dark:text-red-400">
+                    {formatMoney(spent)}
+                  </span>
+                </>
+              )}
+              {income > 0 && (
+                <>
+                  {" · доход "}
+                  <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                    {formatMoney(income)}
+                  </span>
+                </>
+              )}
+            </div>
+          );
+        })()}
 
       {/* Чипы-фильтры по категориям */}
       {presentCategories.length > 0 && (
