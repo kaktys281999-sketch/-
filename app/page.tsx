@@ -48,6 +48,16 @@ const TABS: {
 export default function Home() {
   const [tab, setTab] = useState<Tab>("summary");
   const [month, setMonth] = useState<string>("");
+  // запрос поиска, переданный из «Сводки» в «Операции»
+  const [opsSearch, setOpsSearch] = useState<{ q: string; seq: number }>({
+    q: "",
+    seq: 0,
+  });
+
+  function openSearch(q: string) {
+    setOpsSearch((s) => ({ q, seq: s.seq + 1 }));
+    setTab("operations");
+  }
 
   // Текущий месяц и работа с localStorage — только на клиенте, чтобы
   // статически отрендеренный HTML не расходился с гидрацией.
@@ -132,6 +142,7 @@ export default function Home() {
               onOpenDebts={() => setTab("debts")}
               onOpenCredits={() => setTab("credits")}
               onOpenSubscriptions={() => setTab("subscriptions")}
+              onOpenSearch={openSearch}
             />
           )}
           {tab === "add" && (
@@ -146,7 +157,7 @@ export default function Home() {
           )}
           {tab === "operations" && (
             <div className="md:mx-auto md:max-w-4xl">
-              <Operations month={month} />
+              <Operations month={month} search={opsSearch} />
             </div>
           )}
           {tab === "debts" && (

@@ -24,6 +24,8 @@ import {
   suggestSubscriptions,
   expensePace,
   categoryBudget,
+  notesBreakdown,
+  categoryNotesBreakdown,
 } from "./calc";
 import { mergeStates } from "./sync";
 import { AppState, Operation, Debt, Credit, RecurringRule } from "./types";
@@ -420,6 +422,23 @@ const merged = mergeStates(local, remote);
 const mIds = merged.accounts.map((a) => a.id).sort();
 eq(mIds, ["cash", "newphone", "yandex"], "слияние счетов объединяет все id");
 eq(merged.accounts.find((a) => a.id === "yandex")!.baseBalance, 12345, "по общему счёту выигрывает свежий документ");
+
+// ---- статистика по заметкам (Пятёрочка/Пятерочка группируются) ----
+const sNotes = state({
+  operations: [
+    op({ category: "Продукты / еда / вода", amount: 1000, date: "2026-06-02", note: "Пятёрочка" }),
+    op({ category: "Продукты / еда / вода", amount: 1500, date: "2026-06-10", note: "Пятерочка" }), // е вместо ё
+    op({ category: "Продукты / еда / вода", amount: 800, date: "2026-06-12", note: "Магнит" }),
+    op({ category: "Продукты / еда / вода", amount: 300, date: "2026-06-15", note: "" }), // без заметки
+    op({ type: "income", category: "Прочий доход", amount: 9999, date: "2026-06-03", note: "Пятёрочка" }), // доход не считаем
+  ],
+});
+const nb = notesBreakdown(sNotes, "2026-06");
+eq([nb[0].label, nb[0].total, nb[0].count], ["Пятёрочка", 2500, 2], "Пятёрочка: ё/е сгруппированы, 2500");
+eq(nb.map((n) => n.label), ["Пятёрочка", "Магнит"], "топ мест без пустых заметок");
+const cnb = categoryNotesBreakdown(sNotes, "Продукты / еда / вода", "2026-06");
+eq(cnb.find((n) => n.label === "(без заметки)")?.total, 300, "категория: бакет «без заметки»");
+eq(cnb.reduce((s, n) => s + n.total, 0), 3600, "сумма по заметкам = расход категории");
 
 // ---- интеграционные инварианты на «богатом» состоянии ----
 const rich = state({

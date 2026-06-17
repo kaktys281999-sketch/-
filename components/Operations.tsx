@@ -21,7 +21,14 @@ const TYPE_COLOR: Record<OpType, string> = {
   credit_loan: "#6926E3",
 };
 
-export function Operations({ month }: { month: string }) {
+export function Operations({
+  month,
+  search,
+}: {
+  month: string;
+  // внешний запрос поиска (например, из «Куда уходят деньги») с seq для повторов
+  search?: { q: string; seq: number };
+}) {
   const { state, updateOperation, deleteOperation, restoreOperation } =
     useStore();
   const [filter, setFilter] = useState<string>("");
@@ -29,6 +36,15 @@ export function Operations({ month }: { month: string }) {
   const [editing, setEditing] = useState<Operation | null>(null);
   // id недавно удалённой операции — для снэкбара «Отменить»
   const [undoId, setUndoId] = useState<string | null>(null);
+
+  // Подхватываем внешний запрос поиска (seq меняется даже при том же тексте)
+  useEffect(() => {
+    if (search) {
+      setQuery(search.q);
+      setFilter("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search?.seq]);
 
   // автоскрытие снэкбара через 6 секунд
   useEffect(() => {

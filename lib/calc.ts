@@ -378,6 +378,75 @@ export function categoryExpense(
   return sum;
 }
 
+// Нормализация заметки для группировки: регистр, ё→е, лишние пробелы.
+export function noteKey(note: string): string {
+  return note.trim().toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ");
+}
+
+export interface NoteStat {
+  label: string; // самое частое написание
+  total: number;
+  count: number;
+}
+
+// Внутренний группировщик расходов по заметке
+function groupExpensesByNote(
+  ops: Operation[],
+  includeEmpty: boolean
+): NoteStat[] {
+  const groups = new Map<
+    string,
+    { total: number; count: number; labels: Map<string, number> }
+  >();
+  for (const o of ops) {
+    const note = (o.note || "").trim();
+    if (!note && !includeEmpty) continue;
+    const key = note ? noteKey(note) : "";
+    const display = note || "(без заметки)";
+    const g =
+      groups.get(key) ?? { total: 0, count: 0, labels: new Map<string, number>() };
+    g.total += o.amount;
+    g.count += 1;
+    g.labels.set(display, (g.labels.get(display) ?? 0) + 1);
+    groups.set(key, g);
+  }
+  return [...groups.values()]
+    .map((g) => {
+      let label = "";
+      let max = -1;
+      for (const [l, c] of g.labels) if (c > max) { max = c; label = l; }
+      return { label, total: g.total, count: g.count };
+    })
+    .sort((a, b) => b.total - a.total);
+}
+
+// Топ «мест» (по заметкам) за месяц среди личных и рабочих расходов
+export function notesBreakdown(state: AppState, month: string): NoteStat[] {
+  const ops = state.operations.filter(
+    (o) =>
+      !o.deleted &&
+      (o.type === "expense_personal" || o.type === "expense_work") &&
+      monthKeyFromISO(o.date) === month
+  );
+  return groupExpensesByNote(ops, false);
+}
+
+// Разбивка расходов внутри одной категории по заметкам (с «без заметки»)
+export function categoryNotesBreakdown(
+  state: AppState,
+  category: string,
+  month: string
+): NoteStat[] {
+  const ops = state.operations.filter(
+    (o) =>
+      !o.deleted &&
+      (o.type === "expense_personal" || o.type === "expense_work") &&
+      o.category === category &&
+      monthKeyFromISO(o.date) === month
+  );
+  return groupExpensesByNote(ops, true);
+}
+
 // Бюджет категории за месяц с учётом переноса остатка за один месяц.
 export interface CategoryBudget {
   base: number; // базовый лимит

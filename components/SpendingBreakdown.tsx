@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { AppState } from "@/lib/types";
 import { monthKeyFromISO, formatMoney } from "@/lib/format";
-import { categoryBudget } from "@/lib/store";
+import { categoryBudget, categoryNotesBreakdown } from "@/lib/store";
 import { Card } from "./ui";
 
 // Расходы по категориям за месяц (личное + рабочее)
@@ -24,11 +25,14 @@ function expensesByCategory(state: AppState, month: string) {
 export function SpendingBreakdown({
   state,
   month,
+  onOpenNote,
 }: {
   state: AppState;
   month: string;
+  onOpenNote?: (note: string) => void;
 }) {
   const { rows, total } = expensesByCategory(state, month);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   return (
     <div>
@@ -59,11 +63,19 @@ export function SpendingBreakdown({
               : total > 0
               ? (r.amount / total) * 100
               : 0;
+            const isOpen = expanded === r.category;
             return (
               <div key={r.category}>
-                <div className="mb-1 flex items-center justify-between text-sm">
-                  <span className="truncate pr-2 text-slate-700 dark:text-slate-200">
-                    {r.category}
+                <button
+                  type="button"
+                  onClick={() => setExpanded(isOpen ? null : r.category)}
+                  className="mb-1 flex w-full items-center justify-between text-sm"
+                >
+                  <span className="flex min-w-0 items-center gap-1 pr-2 text-slate-700 dark:text-slate-200">
+                    <span className="text-[11px] text-label-3">
+                      {isOpen ? "▾" : "▸"}
+                    </span>
+                    <span className="truncate">{r.category}</span>
                   </span>
                   <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
                     {hasBudget ? (
@@ -86,7 +98,7 @@ export function SpendingBreakdown({
                       </>
                     )}
                   </span>
-                </div>
+                </button>
                 <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                   <div
                     className={`h-full rounded-full transition-all ${
@@ -126,6 +138,36 @@ export function SpendingBreakdown({
                         ? `превышен на ${formatMoney(b.spent - b.effective)}`
                         : `осталось ${formatMoney(b.remaining)}`}
                     </span>
+                  </div>
+                )}
+                {isOpen && (
+                  <div className="mt-2 space-y-1.5 border-l-2 border-[var(--separator)] pl-3">
+                    {categoryNotesBreakdown(state, r.category, month).map((n) => {
+                      const noted = n.label !== "(без заметки)";
+                      return (
+                        <div
+                          key={n.label}
+                          className="flex items-center justify-between gap-2 text-[13px]"
+                        >
+                          <button
+                            type="button"
+                            disabled={!noted || !onOpenNote}
+                            onClick={() => noted && onOpenNote?.(n.label)}
+                            className={`min-w-0 truncate text-left ${
+                              noted && onOpenNote
+                                ? "text-brand"
+                                : "text-label-2"
+                            }`}
+                          >
+                            {n.label}
+                            <span className="text-label-3"> · {n.count}×</span>
+                          </button>
+                          <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
+                            {formatMoney(n.total)}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>

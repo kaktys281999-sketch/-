@@ -17,6 +17,7 @@ import {
   subscriptionStatuses,
   subscriptionsMonthlyTotal,
   expensePace,
+  notesBreakdown,
 } from "@/lib/store";
 import {
   formatMoney,
@@ -40,12 +41,14 @@ export function Summary({
   onOpenDebts,
   onOpenCredits,
   onOpenSubscriptions,
+  onOpenSearch,
 }: {
   month: string;
   onSelectMonth?: (key: string) => void;
   onOpenDebts?: () => void;
   onOpenCredits?: () => void;
   onOpenSubscriptions?: () => void;
+  onOpenSearch?: (query: string) => void;
 }) {
   const { state, paySubscription, addCreditPayment, settleDebt } = useStore();
   const onHand = totalOnHand(state);
@@ -159,6 +162,7 @@ export function Summary({
       : null;
   const pace = expensePace(state, month, today);
   const subsMonthly = subscriptionsMonthlyTotal(state);
+  const topNotes = notesBreakdown(state, month).slice(0, 6);
 
   return (
     <div className="space-y-4 md:grid md:grid-cols-2 md:items-start md:gap-4 md:space-y-0">
@@ -464,10 +468,49 @@ export function Summary({
         <MonthlyTrend state={state} month={month} onSelectMonth={onSelectMonth} />
       </div>
 
-      {/* Расходы по категориям */}
+      {/* Расходы по категориям (раскрываются по заметкам) */}
       <div className="md:col-span-2">
-        <SpendingBreakdown state={state} month={month} />
+        <SpendingBreakdown
+          state={state}
+          month={month}
+          onOpenNote={onOpenSearch}
+        />
       </div>
+
+      {/* Куда уходят деньги — топ мест по заметкам */}
+      {topNotes.length > 0 && (
+        <div className="md:col-span-2">
+          <SectionTitle>Куда уходят деньги</SectionTitle>
+          <Card className="!p-0">
+            {topNotes.map((n, i) => (
+              <button
+                key={n.label}
+                type="button"
+                onClick={() => onOpenSearch?.(n.label)}
+                className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[15px] active:bg-black/[0.03] dark:active:bg-white/5 ${
+                  i > 0 ? "border-t border-[var(--separator)]" : ""
+                }`}
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand/10 text-[12px] font-bold text-brand">
+                    {i + 1}
+                  </span>
+                  <span className="truncate">
+                    {n.label}
+                    <span className="text-[13px] text-label-3"> · {n.count}×</span>
+                  </span>
+                </span>
+                <span className="shrink-0 font-semibold tabular-nums">
+                  {formatMoney(n.total)}
+                </span>
+              </button>
+            ))}
+          </Card>
+          <p className="mt-1.5 px-1 text-[13px] text-label-2">
+            По заметкам к операциям. Нажми, чтобы увидеть все траты места.
+          </p>
+        </div>
+      )}
 
       {/* Цель */}
       <div>
