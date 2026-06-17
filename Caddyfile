@@ -1,16 +1,9 @@
 money.timur-ergashev.ru {
 	encode gzip
 
-	# ВАЖНО (без логина любой, кто знает адрес, увидит твои финансы,
-	# т.к. ссылка синхронизации с Google-таблицей зашита в приложение).
-	# Включи защиту паролем: сгенерируй хэш и подставь логин/хэш ниже,
-	# затем раскомментируй блок:
-	#
-	#   docker compose run --rm caddy caddy hash-password --plaintext 'ТВОЙ_ПАРОЛЬ'
-	#
-	# basicauth {
-	#     timur ХЭШ_ИЗ_КОМАНДЫ_ВЫШЕ
-	# }
+	# Доп. конфиг (например, пароль basicauth) подключается отсюда.
+	# Файл caddy-conf.d/auth.caddy не в git и переживает обновления (git pull).
+	import /etc/caddy/conf.d/*.caddy
 
 	reverse_proxy app:3000
 }

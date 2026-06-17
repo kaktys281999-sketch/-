@@ -32,3 +32,6 @@ next-env.d.ts
 # генерируется при сборке (scripts/gen-version.mjs)
 /lib/buildVersion.ts
 /public/version.json
+
+# секрет basicauth — только на сервере, не в репозитории
+/caddy-conf.d/auth.caddy

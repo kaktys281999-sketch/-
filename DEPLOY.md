@@ -44,17 +44,17 @@ Caddy сам получит HTTPS-сертификат для домена. Че
 ```bash
 docker compose run --rm caddy caddy hash-password --plaintext 'ПРИДУМАЙ_ПАРОЛЬ'
 ```
-Открой `Caddyfile`, раскомментируй блок `basicauth` и подставь логин и полученный хэш:
-```
+Создай файл `caddy-conf.d/auth.caddy` (он **не в git** и переживёт обновления):
+```bash
+cat > caddy-conf.d/auth.caddy <<'EOF'
 basicauth {
     timur $2a$14$....полученный_хэш....
 }
+EOF
+docker compose restart caddy
 ```
-Применить:
-```bash
-docker compose up -d
-```
-Теперь сайт спросит логин/пароль (браузер запомнит).
+Теперь сайт спросит логин/пароль (браузер запомнит). Менять пароль — заменить
+файл и снова `docker compose restart caddy`.
 
 ## 6. Обновление версии — «одна кнопка»
 Когда вышла новая версия кода:
