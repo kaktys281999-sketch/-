@@ -4,6 +4,7 @@ import "./globals.css";
 import { StoreProvider } from "@/lib/store";
 import { THEME_SCRIPT } from "@/lib/theme";
 import { PwaRegister } from "@/components/PwaRegister";
+import { UpdatePrompt } from "@/components/UpdatePrompt";
 
 const manrope = Manrope({
   subsets: ["latin", "cyrillic"],
@@ -37,6 +38,7 @@ export default function RootLayout({
       <body>
         <PwaRegister />
         <StoreProvider>{children}</StoreProvider>
+        <UpdatePrompt />
       </body>
     </html>
   );

@@ -28,3 +28,7 @@ next-env.d.ts
 
 # vercel
 .vercel
+
+# генерируется при сборке (scripts/gen-version.mjs)
+/lib/buildVersion.ts
+/public/version.json
