@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.github
+npm-debug.log*
+*.md
+Dockerfile
+.dockerignore
+docker-compose.yml
+Caddyfile
+deploy.sh
+.vercel

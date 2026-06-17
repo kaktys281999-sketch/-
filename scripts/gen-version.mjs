@@ -17,7 +17,11 @@ try {
 }
 
 const date = new Date().toISOString().slice(0, 16).replace("T", " ");
-const version = sha ? `${date} · ${sha}` : String(Date.now());
+// APP_VERSION можно передать снаружи (deploy.sh пробрасывает его в Docker,
+// где git недоступен) — иначе берём git sha, иначе таймстамп.
+const version =
+  process.env.APP_VERSION?.trim() ||
+  (sha ? `${date} · ${sha}` : String(Date.now()));
 
 writeFileSync("public/version.json", JSON.stringify({ version }) + "\n");
 writeFileSync(
