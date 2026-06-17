@@ -144,6 +144,8 @@ export interface AppState {
   templates?: Template[];
   // одноразовая подсадка шаблонов транспорта выполнена
   seededTransportTpl?: boolean;
+  // одноразовая установка суммы автобуса по умолчанию (55 ₽)
+  busDefaultApplied?: boolean;
   // регулярные операции
   recurring?: RecurringRule[];
   // долги (мне должны / я должен)

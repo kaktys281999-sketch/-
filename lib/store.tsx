@@ -51,7 +51,7 @@ function transportTemplates(accountId: string): Template[] {
   return [
     { id: "tpl-taxi", title: "Такси", type: "expense_personal", category: "Проезд / транспорт", amount: 0, accountId, note: "Такси" },
     { id: "tpl-scooter", title: "Самокат", type: "expense_personal", category: "Проезд / транспорт", amount: 0, accountId, note: "Самокат" },
-    { id: "tpl-bus", title: "Автобус", type: "expense_personal", category: "Проезд / транспорт", amount: 0, accountId, note: "Автобус" },
+    { id: "tpl-bus", title: "Автобус", type: "expense_personal", category: "Проезд / транспорт", amount: 55, accountId, note: "Автобус" },
   ];
 }
 
@@ -88,6 +88,7 @@ const INITIAL_STATE: AppState = {
   budgetRollover: false,
   templates: transportTemplates("yandex"),
   seededTransportTpl: true,
+  busDefaultApplied: true,
   recurring: [],
   debts: [],
   updatedAt: 0,
@@ -182,6 +183,14 @@ function loadState(): AppState {
       ];
       seededTransportTpl = true;
     }
+    // Разовая установка суммы автобуса по умолчанию (55 ₽), если ещё «спросить»
+    let busDefaultApplied = parsed.busDefaultApplied ?? false;
+    if (!busDefaultApplied) {
+      templates = templates.map((t) =>
+        t.id === "tpl-bus" && t.amount === 0 ? { ...t, amount: 55 } : t
+      );
+      busDefaultApplied = true;
+    }
     // Мягкое слияние, чтобы новые поля не ломали старые данные
     return {
       accounts: ensureCashAccount(parsed.accounts ?? INITIAL_STATE.accounts),
@@ -193,6 +202,7 @@ function loadState(): AppState {
       budgetRollover: parsed.budgetRollover ?? false,
       templates,
       seededTransportTpl,
+      busDefaultApplied,
       recurring: parsed.recurring ?? [],
       debts: parsed.debts ?? [],
       updatedAt: parsed.updatedAt ?? 0,
