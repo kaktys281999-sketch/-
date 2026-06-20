@@ -33,6 +33,9 @@ export function Operations({
   const { state, updateOperation, deleteOperation, restoreOperation } =
     useStore();
   const [filter, setFilter] = useState<string>("");
+  const [typeFilter, setTypeFilter] = useState<
+    "all" | "income" | "expense" | "transfer"
+  >("all");
   const [query, setQuery] = useState<string>("");
   const [editing, setEditing] = useState<Operation | null>(null);
   // id недавно удалённой операции — для снэкбара «Отменить»
@@ -95,7 +98,15 @@ export function Operations({
     const accName = (id: string) =>
       state.accounts.find((a) => a.id === id)?.name.toLowerCase() ?? "";
     const qNum = q.replace(/\s/g, "");
+    const isNum = /^\d+$/.test(qNum);
+    const typeOk = (o: Operation) =>
+      typeFilter === "all" ||
+      (typeFilter === "income" && o.type === "income") ||
+      (typeFilter === "expense" &&
+        (o.type === "expense_personal" || o.type === "expense_work")) ||
+      (typeFilter === "transfer" && o.type === "transfer");
     return baseOps
+      .filter(typeOk)
       .filter((o) => (filter ? o.category === filter : true))
       .filter((o) => {
         if (!q) return true;
@@ -103,11 +114,13 @@ export function Operations({
           o.category.toLowerCase().includes(q) ||
           (o.note ?? "").toLowerCase().includes(q) ||
           accName(o.accountId).includes(q) ||
-          String(o.amount).includes(qNum)
+          (o.type === "transfer" && accName(o.toAccountId ?? "").includes(q)) ||
+          (o.type === "transfer" && "перевод".includes(q)) ||
+          (isNum && String(Math.round(o.amount)).startsWith(qNum))
         );
       })
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [baseOps, filter, q, state.accounts]);
+  }, [baseOps, filter, typeFilter, q, state.accounts]);
 
   // Группировка по дням
   const byDay = useMemo(() => {
@@ -200,8 +213,24 @@ export function Operations({
           );
         })()}
 
+      {/* Фильтр по типу */}
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <Chip active={typeFilter === "all"} onClick={() => { setTypeFilter("all"); setFilter(""); }}>
+          Все
+        </Chip>
+        <Chip active={typeFilter === "income"} onClick={() => { setTypeFilter("income"); setFilter(""); }}>
+          Доходы
+        </Chip>
+        <Chip active={typeFilter === "expense"} onClick={() => { setTypeFilter("expense"); setFilter(""); }}>
+          Расходы
+        </Chip>
+        <Chip active={typeFilter === "transfer"} onClick={() => { setTypeFilter("transfer"); setFilter(""); }}>
+          Переводы
+        </Chip>
+      </div>
+
       {/* Чипы-фильтры по категориям */}
-      {presentCategories.length > 0 && (
+      {typeFilter !== "transfer" && presentCategories.length > 0 && (
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <Chip active={filter === ""} onClick={() => setFilter("")}>
             Все
