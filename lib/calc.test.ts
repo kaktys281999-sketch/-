@@ -499,6 +499,18 @@ const partialCredit = credit({
 });
 eq(creditView(partialCredit).remaining, 299.7, "остаток кредита округлён до копеек (300 − 0.1 − 0.2)");
 
+// ---- переводы между счетами ----
+const transferState = state({
+  operations: [
+    op({ type: "transfer", accountId: "sber", toAccountId: "tinkoff", amount: 1000, category: "", date: "2026-05-10" }),
+  ],
+});
+eq(currentBalance(transferState, "sber"), 4000, "перевод: со счёта-источника списалось (5000−1000)");
+eq(currentBalance(transferState, "tinkoff"), 1000, "перевод: на счёт-получатель пришло (0+1000)");
+eq(totalOnHand(transferState), 15000, "перевод: всего на руках не меняется");
+eq(monthSummary(transferState, "2026-05").income, 0, "перевод — не доход");
+eq(monthSummary(transferState, "2026-05").expense, 0, "перевод — не расход");
+
 // ---- итог ----
 console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);
 if (failed > 0) process.exit(1);

@@ -21,6 +21,7 @@ export interface OperationDraft {
   category: string;
   amount: string;
   accountId: string;
+  toAccountId: string;
   note: string;
 }
 
@@ -35,6 +36,7 @@ function emptyDraft(defaultAccount: string): OperationDraft {
     category: def.categories[0].name, // «Продукты / еда / вода»
     amount: "",
     accountId: defaultAccount,
+    toAccountId: "",
     note: "",
   };
 }
@@ -109,6 +111,7 @@ export function OperationForm({
       category,
       amount: "",
       accountId,
+      toAccountId: "",
       note: "",
     };
   };
@@ -122,6 +125,7 @@ export function OperationForm({
         category: src.category ?? getTypeDef(src.type ?? TYPES[0].type).categories[0].name,
         amount: src.amount ? String(src.amount) : "",
         accountId: src.accountId ?? defaultAccount,
+        toAccountId: src.toAccountId ?? "",
         note: src.note ?? "",
       };
     }
@@ -166,13 +170,36 @@ export function OperationForm({
   }, [draft, onDraftChange]);
 
   function handleTypeChange(type: OpType) {
+    if (type === "transfer") {
+      setDraft((d) => ({
+        ...d,
+        type,
+        category: "",
+        toAccountId:
+          d.toAccountId && d.toAccountId !== d.accountId
+            ? d.toAccountId
+            : state.accounts.find((a) => a.id !== d.accountId)?.id ?? "",
+      }));
+      return;
+    }
     const def = getTypeDef(type);
     // выбираем самую частую категорию этого типа (как в отсортированных чипах)
     const top = def.categories
       .map((c, i) => ({ name: c.name, i, n: categoryCounts.get(c.name) ?? 0 }))
       .sort((a, b) => (b.n !== a.n ? b.n - a.n : a.i - b.i))[0];
-    setDraft((d) => ({ ...d, type, category: top?.name ?? def.categories[0].name }));
+    setDraft((d) => ({ ...d, type, category: top?.name ?? def.categories[0]?.name ?? "" }));
   }
+
+  // выбор счёта-источника: для перевода держим получателя отличным от источника
+  const pickFrom = (id: string) =>
+    setDraft((d) => {
+      if (d.type !== "transfer") return { ...d, accountId: id };
+      const to =
+        d.toAccountId && d.toAccountId !== id
+          ? d.toAccountId
+          : state.accounts.find((a) => a.id !== id)?.id ?? "";
+      return { ...d, accountId: id, toAccountId: to };
+    });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -184,12 +211,14 @@ export function OperationForm({
       return;
     }
     setError(false);
+    const isTransfer = draft.type === "transfer";
     onSubmit({
       date: draft.date,
       type: draft.type,
-      category: draft.category,
+      category: isTransfer ? "" : draft.category,
       amount,
       accountId: draft.accountId,
+      ...(isTransfer ? { toAccountId: draft.toAccountId } : {}),
       note: draft.note.trim(),
     });
     if (!initial) {
@@ -267,7 +296,9 @@ export function OperationForm({
       <div>
         <label className={labelCls}>Тип</label>
         <div className="grid grid-cols-2 gap-2">
-          {FORM_TYPES.map((t) => (
+          {FORM_TYPES.filter(
+            (t) => t.type !== "transfer" || state.accounts.length >= 2
+          ).map((t) => (
             <button
               type="button"
               key={t.type}
@@ -284,6 +315,7 @@ export function OperationForm({
         </div>
       </div>
 
+      {draft.type !== "transfer" && (
       <div>
         <label className={labelCls}>Категория</label>
         <div className="flex flex-wrap gap-2">
@@ -299,15 +331,18 @@ export function OperationForm({
           ))}
         </div>
       </div>
+      )}
 
       <div>
-        <label className={labelCls}>Счёт</label>
+        <label className={labelCls}>
+          {draft.type === "transfer" ? "Со счёта" : "Счёт"}
+        </label>
         <div className="flex flex-wrap gap-2">
           {state.accounts.map((a) => (
             <button
               type="button"
               key={a.id}
-              onClick={() => setDraft((d) => ({ ...d, accountId: a.id }))}
+              onClick={() => pickFrom(a.id)}
               className={`flex items-center gap-2 ${chipCls(
                 draft.accountId === a.id
               )}`}
@@ -321,6 +356,32 @@ export function OperationForm({
           ))}
         </div>
       </div>
+
+      {draft.type === "transfer" && (
+        <div>
+          <label className={labelCls}>На счёт</label>
+          <div className="flex flex-wrap gap-2">
+            {state.accounts
+              .filter((a) => a.id !== draft.accountId)
+              .map((a) => (
+                <button
+                  type="button"
+                  key={a.id}
+                  onClick={() => setDraft((d) => ({ ...d, toAccountId: a.id }))}
+                  className={`flex items-center gap-2 ${chipCls(
+                    draft.toAccountId === a.id
+                  )}`}
+                >
+                  <span
+                    className="h-2.5 w-2.5 rounded-full ring-1 ring-black/5"
+                    style={{ backgroundColor: accountColor(a.id) }}
+                  />
+                  {a.name}
+                </button>
+              ))}
+          </div>
+        </div>
+      )}
 
       <div>
         <label className={labelCls}>Дата</label>

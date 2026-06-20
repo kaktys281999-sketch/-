@@ -73,8 +73,19 @@ export function operationDelta(op: Operation): number {
   if (op.type === "income") return op.amount;
   if (op.type === "expense_personal" || op.type === "expense_work")
     return -op.amount;
+  if (op.type === "transfer") return -op.amount; // со счёта-источника уходит
   // credit_loan — по знаку категории
   return getCategorySign(op.type, op.category) * op.amount;
+}
+
+// Дельта операции для КОНКРЕТНОГО счёта (учитывает перевод: −у источника, +у получателя)
+export function operationAccountDelta(op: Operation, accountId: string): number {
+  if (op.type === "transfer") {
+    if (op.accountId === accountId) return -op.amount;
+    if (op.toAccountId === accountId) return op.amount;
+    return 0;
+  }
+  return op.accountId === accountId ? operationDelta(op) : 0;
 }
 
 // Влияние долга на баланс конкретного счёта.
@@ -301,8 +312,8 @@ export function currentBalance(state: AppState, accountId: string): number {
   const acc = state.accounts.find((a) => a.id === accountId);
   if (!acc) return 0;
   const opDelta = state.operations
-    .filter((o) => o.accountId === accountId && !o.deleted)
-    .reduce((sum, o) => sum + operationDelta(o), 0);
+    .filter((o) => !o.deleted)
+    .reduce((sum, o) => sum + operationAccountDelta(o, accountId), 0);
   const debtDelta = (state.debts ?? [])
     .filter((d) => !d.deleted)
     .reduce((sum, d) => sum + debtAccountDelta(d, accountId), 0);
@@ -355,11 +366,11 @@ export function accountMonthFlow(
   let income = 0;
   let expense = 0;
   for (const o of state.operations) {
-    if (o.deleted || o.accountId !== accountId) continue;
+    if (o.deleted) continue;
     if (monthKeyFromISO(o.date) !== mKey) continue;
-    const d = operationDelta(o);
-    if (d >= 0) income += d;
-    else expense += -d;
+    const d = operationAccountDelta(o, accountId);
+    if (d > 0) income += d;
+    else if (d < 0) expense += -d;
   }
   return { income, expense, net: income - expense };
 }

@@ -19,6 +19,7 @@ const TYPE_COLOR: Record<OpType, string> = {
   expense_personal: "#f43f5e",
   expense_work: "#f59e0b",
   credit_loan: "#6926E3",
+  transfer: "#0ea5e9",
 };
 
 export function Operations({
@@ -81,6 +82,7 @@ export function Operations({
     const seen = new Set<string>();
     const order: string[] = [];
     for (const o of baseOps) {
+      if (o.type === "transfer" || !o.category) continue;
       if (!seen.has(o.category)) {
         seen.add(o.category);
         order.push(o.category);
@@ -256,19 +258,29 @@ export function Operations({
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[15px] font-medium">
-                      {op.category}
+                      {op.type === "transfer" ? "Перевод" : op.category}
                     </div>
                     <div className="truncate text-[13px] text-label-2">
-                      {accountName(op.accountId)}
+                      {op.type === "transfer"
+                        ? `${accountName(op.accountId)} → ${accountName(
+                            op.toAccountId ?? ""
+                          )}`
+                        : accountName(op.accountId)}
                       {op.note ? ` · ${op.note}` : ""}
                     </div>
                   </div>
-                  <Money
-                    value={operationDelta(op)}
-                    showPlus
-                    colorPositive
-                    className="shrink-0 text-[15px] font-semibold"
-                  />
+                  {op.type === "transfer" ? (
+                    <span className="shrink-0 text-[15px] font-semibold text-label-2">
+                      {formatMoney(op.amount)}
+                    </span>
+                  ) : (
+                    <Money
+                      value={operationDelta(op)}
+                      showPlus
+                      colorPositive
+                      className="shrink-0 text-[15px] font-semibold"
+                    />
+                  )}
                 </button>
               ))}
             </Card>

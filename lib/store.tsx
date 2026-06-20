@@ -24,6 +24,7 @@ import {
 import { todayISO, generatePaymentDates, monthKey } from "./format";
 import {
   operationDelta,
+  operationAccountDelta,
   debtAccountDelta,
   creditAccountDelta,
   dueRecurringOperations,
@@ -493,8 +494,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const setAccountBalance = (id: string, currentBalance: number) => {
       setState((s) => {
         const opDelta = s.operations
-          .filter((o) => o.accountId === id && !o.deleted)
-          .reduce((sum, o) => sum + operationDelta(o), 0);
+          .filter((o) => !o.deleted)
+          .reduce((sum, o) => sum + operationAccountDelta(o, id), 0);
         const debtDelta = (s.debts ?? [])
           .filter((d) => !d.deleted)
           .reduce((sum, d) => sum + debtAccountDelta(d, id), 0);

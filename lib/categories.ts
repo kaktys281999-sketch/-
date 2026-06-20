@@ -52,6 +52,11 @@ export const TYPES: TypeDef[] = [
       { name: "Возврат долга мне", sign: 1 },
     ],
   },
+  {
+    type: "transfer",
+    label: "Перевод",
+    categories: [],
+  },
 ];
 
 export function getTypeDef(type: OpType): TypeDef {

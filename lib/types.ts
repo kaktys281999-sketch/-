@@ -1,5 +1,10 @@
 // Группы операций (типы)
-export type OpType = "income" | "expense_personal" | "expense_work" | "credit_loan";
+export type OpType =
+  | "income"
+  | "expense_personal"
+  | "expense_work"
+  | "credit_loan"
+  | "transfer"; // перевод между своими счетами
 
 // Счёт
 export interface Account {
@@ -17,6 +22,8 @@ export interface Operation {
   category: string;
   amount: number; // всегда положительное число
   accountId: string;
+  // счёт-получатель для перевода (только при type === "transfer")
+  toAccountId?: string;
   note: string;
   // id регулярного правила, если операция создана автоматически
   recurringId?: string;
