@@ -6,6 +6,9 @@ import { monthKeyFromISO, shiftMonth } from "./format";
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
+// Округление денег до копеек — гасит «хвосты» float (0.1+0.2=0.30000000000000004)
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 // Список месяцев «YYYY-MM» от start до end включительно (с предохранителем)
 function monthsRange(start: string, end: string): string[] {
   if (!start || start > end) return [];
@@ -543,7 +546,7 @@ export interface CreditView {
 export function creditView(c: Credit): CreditView {
   const totalDue = c.payment * c.count;
   const paid = c.payments.reduce((sum, p) => sum + p.amount, 0);
-  const remaining = Math.max(0, totalDue - paid);
+  const remaining = Math.max(0, round2(totalDue - paid));
   // «X из N» считаем по сумме (целые платежи), а не по числу записей —
   // иначе частичные платежи ложно отметили бы кредит погашенным.
   const paidCount =
@@ -589,7 +592,7 @@ export function creditInfo(state: AppState): CreditInfo {
     totalDue,
     overpay,
     paid,
-    remaining: Math.max(0, totalDue - paid),
+    remaining: Math.max(0, round2(totalDue - paid)),
     nextPaymentDate: next?.date ?? null,
     nextPaymentAmount: next?.amount ?? 0,
   };
@@ -600,7 +603,7 @@ export function creditInfo(state: AppState): CreditInfo {
 // Сколько осталось вернуть по долгу (не уходит в минус)
 export function debtOutstanding(d: Debt): number {
   const paid = d.payments.reduce((sum, p) => sum + p.amount, 0);
-  return Math.max(0, d.amount - paid);
+  return Math.max(0, round2(d.amount - paid));
 }
 
 export function debtPaidTotal(d: Debt): number {
@@ -608,7 +611,7 @@ export function debtPaidTotal(d: Debt): number {
 }
 
 export function isDebtSettled(d: Debt): boolean {
-  return debtPaidTotal(d) >= d.amount;
+  return debtOutstanding(d) <= 0;
 }
 
 export interface DebtsSummary {

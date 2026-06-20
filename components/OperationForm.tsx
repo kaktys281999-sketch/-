@@ -103,7 +103,8 @@ export function OperationForm({
       ? last.accountId
       : defaultAccount;
     return {
-      date: last.date || todayISO(),
+      // дата новой операции — всегда сегодня (не «залипает» прошлая дата)
+      date: todayISO(),
       type: last.type,
       category,
       amount: "",

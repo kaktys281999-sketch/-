@@ -843,22 +843,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const resetAll = () => {
       setState((s) => {
         const now = Date.now();
-        // Существующие операции превращаем в надгробия, а не выкидываем —
-        // иначе при следующей синхронизации они «воскреснут» из таблицы.
-        const tombstones = s.operations.map((o) => ({
-          ...o,
-          deleted: true,
-          updatedAt: now,
-        }));
-        const debtTombstones = (s.debts ?? []).map((d) => ({
-          ...d,
-          deleted: true,
-          updatedAt: now,
-        }));
+        // Полный сброс: ВСЕ синхронизируемые сущности гасим надгробиями
+        // (иначе при следующей синхронизации они «воскреснут» из таблицы),
+        // балансы счетов обнуляем (имена счетов и шаблоны оставляем).
         return {
-          ...INITIAL_STATE,
-          operations: tombstones,
-          debts: debtTombstones,
+          ...s,
+          accounts: s.accounts.map((a) => ({ ...a, baseBalance: 0 })),
+          operations: s.operations.map((o) => ({ ...o, deleted: true, updatedAt: now })),
+          debts: (s.debts ?? []).map((d) => ({ ...d, deleted: true, updatedAt: now })),
+          credits: (s.credits ?? []).map((c) => ({ ...c, deleted: true, updatedAt: now })),
+          recurring: (s.recurring ?? []).map((r) => ({ ...r, deleted: true, updatedAt: now })),
+          goal: { name: "", target: 0, saved: 0 },
+          budgets: {},
           updatedAt: now,
         };
       });

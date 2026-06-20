@@ -475,6 +475,30 @@ const noNaN = [
 ].every((n) => Number.isFinite(n));
 eq(noNaN, true, "инвариант: нет NaN/∞ в ключевых числах");
 
+// ---- float-хвост: погашение не «застревает» из-за 0.1+0.2 ----
+const dustDebt = debt({
+  direction: "i_owe",
+  accountId: "cash",
+  amount: 0.9,
+  payments: [
+    { id: "d1", date: "2026-01-02", amount: 0.3, accountId: "cash" },
+    { id: "d2", date: "2026-01-03", amount: 0.3, accountId: "cash" },
+    { id: "d3", date: "2026-01-04", amount: 0.3, accountId: "cash" },
+  ],
+});
+eq(debtOutstanding(dustDebt), 0, "долг 0.9 тремя по 0.3 — остаток 0 (без float-хвоста)");
+eq(isDebtSettled(dustDebt), true, "долг 0.9 тремя по 0.3 — погашен");
+const partialCredit = credit({
+  payment: 100,
+  count: 3,
+  accountId: "yandex",
+  payments: [
+    { id: "c1", date: "2026-02-01", amount: 0.1, accountId: "yandex" },
+    { id: "c2", date: "2026-03-01", amount: 0.2, accountId: "yandex" },
+  ],
+});
+eq(creditView(partialCredit).remaining, 299.7, "остаток кредита округлён до копеек (300 − 0.1 − 0.2)");
+
 // ---- итог ----
 console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);
 if (failed > 0) process.exit(1);

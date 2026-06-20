@@ -163,9 +163,16 @@ export function Summary({
   const pace = expensePace(state, month, today);
   const subsMonthly = subscriptionsMonthlyTotal(state);
   const topNotes = notesBreakdown(state, month).slice(0, 6);
+  const hasData = state.operations.some((o) => !o.deleted);
 
   return (
     <div className="space-y-4 md:grid md:grid-cols-2 md:items-start md:gap-4 md:space-y-0">
+      {!hasData && (
+        <div className="rounded-2xl bg-brand p-4 text-[14px] leading-relaxed text-white md:col-span-2">
+          Привет! Здесь будет ваша сводка. Добавьте первую операцию во вкладке
+          «Добавить» — появятся балансы, статистика и графики.
+        </div>
+      )}
       {/* Реальная позиция — крупно */}
       <div
         className={`overflow-hidden rounded-2xl p-5 md:col-span-2 ${
@@ -512,7 +519,8 @@ export function Summary({
         </div>
       )}
 
-      {/* Цель */}
+      {/* Цель (скрыта, пока цель не задана) */}
+      {goal.target > 0 && (
       <div>
         <SectionTitle>Цель · {goal.name}</SectionTitle>
         <Card>
@@ -533,6 +541,7 @@ export function Summary({
           </div>
         </Card>
       </div>
+      )}
 
       {/* Кредиты */}
       {credit.totalDue > 0 && (
