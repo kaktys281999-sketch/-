@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "→ Обновляю код (git pull)…"
-git pull --ff-only
+git pull --ff-only 2>/dev/null || echo "  (git pull пропущен — origin недоступен, это нормально)"
 
 # Читаемая версия сборки (дата + короткий git sha) — попадёт в приложение
 export APP_VERSION="$(date +%F) · $(git rev-parse --short HEAD)"
