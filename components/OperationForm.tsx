@@ -218,9 +218,15 @@ export function OperationForm({
           value={formatAmountInput(draft.amount)}
           onChange={(e) => {
             if (error) setError(false);
-            // оставляем только цифры и разделитель, храним без пробелов
-            const cleaned = e.target.value.replace(/[^\d.,]/g, "");
-            setDraft((d) => ({ ...d, amount: cleaned }));
+            // только цифры и один разделитель, не более 2 знаков после; храним с точкой
+            let v = e.target.value.replace(/[^\d.,]/g, "").replace(/,/g, ".");
+            const dot = v.indexOf(".");
+            if (dot !== -1) {
+              v =
+                v.slice(0, dot + 1) +
+                v.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+            }
+            setDraft((d) => ({ ...d, amount: v }));
           }}
           placeholder="0"
           autoFocus={!initial}
@@ -243,10 +249,11 @@ export function OperationForm({
             onClick={() => {
               if (error) setError(false);
               setDraft((d) => {
-                const cur = Math.round(
-                  Number(d.amount.replace(/\s/g, "").replace(",", ".")) || 0
-                );
-                return { ...d, amount: String(cur + q) };
+                // прибавляем к текущей сумме, копейки не теряем
+                const cur =
+                  Number(d.amount.replace(/\s/g, "").replace(",", ".")) || 0;
+                const next = Math.round((cur + q) * 100) / 100;
+                return { ...d, amount: String(next) };
               });
             }}
             className="rounded-full bg-black/[0.06] px-3.5 py-1.5 text-[13px] font-medium text-slate-600 dark:bg-white/10 dark:text-slate-300"
