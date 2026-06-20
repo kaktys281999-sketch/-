@@ -210,8 +210,12 @@ export function OperationForm({
       setError(true);
       return;
     }
-    setError(false);
     const isTransfer = draft.type === "transfer";
+    if (isTransfer && (!draft.toAccountId || draft.toAccountId === draft.accountId)) {
+      setError(true);
+      return;
+    }
+    setError(false);
     onSubmit({
       date: draft.date,
       type: draft.type,
@@ -267,7 +271,10 @@ export function OperationForm({
       </div>
       {error && (
         <p className="-mt-3 text-center text-[13px] font-medium text-red-600 dark:text-red-400">
-          Введите сумму больше нуля
+          {draft.type === "transfer" &&
+          (!draft.toAccountId || draft.toAccountId === draft.accountId)
+            ? "Выберите счёт-получатель"
+            : "Введите сумму больше нуля"}
         </p>
       )}
       {/* Быстрые добавки */}
