@@ -1,6 +1,6 @@
 // Простой service worker: офлайн-доступ к оболочке приложения.
 // Данные и так в localStorage, поэтому кешируем только статику.
-const CACHE = "finance-shell-v1";
+const CACHE = "finance-shell-v2";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
