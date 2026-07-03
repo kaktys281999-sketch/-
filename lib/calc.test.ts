@@ -31,6 +31,7 @@ import {
   creditCardDueDate,
   creditCardLimit,
   creditCardAvailable,
+  creditCardDebtTotal,
 } from "./calc";
 import { mergeStates } from "./sync";
 import { AppState, Operation, Debt, Credit, RecurringRule, Transfer } from "./types";
@@ -352,7 +353,9 @@ eq(currentBalance(sCard, "card"), -1500, "кредитка: трата увел�
 eq(creditCardDebt(sCard, "card"), 1500, "долг по кредитке = отрицательный баланс по модулю");
 eq(creditCardLimit(sCard.accounts[1]), 10000, "кредитка: лимит хранится отдельно");
 eq(creditCardAvailable(sCard, "card"), 8500, "кредитка: доступно = лимит − долг");
-eq(totalOnHand(sCard), 7500, "кредитка: лимит не считается деньгами на руках");
+eq(creditCardDebtTotal(sCard), 1500, "кредитка: общий долг по кредиткам");
+eq(totalOnHand(sCard), 9000, "кредитка: на руках считаются только обычные счета");
+eq(realPosition(sCard), 7500, "кредитка: реальная позиция учитывает долг по карте");
 eq(creditCardDueDate(sCard.accounts[1], "2026-02"), "2026-02-28", "день оплаты кредитки обрезается под месяц");
 
 const sCardOverLimit = state({
@@ -512,6 +515,7 @@ const rich = state({
     { id: "yandex", name: "Я", baseBalance: 10000 },
     { id: "sber", name: "С", baseBalance: 5000 },
     { id: "cash", name: "Наличные", baseBalance: 0 },
+    { id: "card", name: "Кредитка", baseBalance: -3000, kind: "credit_card", creditLimit: 10000 },
   ],
   operations: [
     op({ type: "income", category: "Прочий доход", amount: 50000, accountId: "yandex", date: "2026-06-02" }),
@@ -525,11 +529,19 @@ const rich = state({
     debt({ direction: "i_owe", accountId: "cash", amount: 2000 }),
   ],
 });
-const sumBal = rich.accounts.reduce((s, a) => s + currentBalance(rich, a.id), 0);
-eq(Math.round(sumBal), Math.round(totalOnHand(rich)), "инвариант: на руках = сумма счетов");
+const regularBal = rich.accounts
+  .filter((a) => a.kind !== "credit_card")
+  .reduce((s, a) => s + currentBalance(rich, a.id), 0);
+eq(Math.round(regularBal), Math.round(totalOnHand(rich)), "инвариант: на руках = сумма обычных счетов");
 eq(
   Math.round(realPosition(rich)),
-  Math.round(totalOnHand(rich) - creditInfo(rich).remaining + debtsSummary(rich).owedToMe - debtsSummary(rich).iOwe),
+  Math.round(
+    totalOnHand(rich) -
+      creditInfo(rich).remaining -
+      creditCardDebtTotal(rich) +
+      debtsSummary(rich).owedToMe -
+      debtsSummary(rich).iOwe
+  ),
   "инвариант: реальная позиция = формула"
 );
 const noNaN = [

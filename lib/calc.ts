@@ -149,6 +149,12 @@ export function creditCardAvailable(state: AppState, accountId: string): number 
   return creditCardLimit(acc) - creditCardDebt(state, accountId);
 }
 
+export function creditCardDebtTotal(state: AppState): number {
+  return state.accounts
+    .filter((a) => a.kind === "credit_card")
+    .reduce((sum, a) => sum + creditCardDebt(state, a.id), 0);
+}
+
 // Предстоящие в текущем месяце списания: будущие регулярные операции этого
 // месяца (ещё не созданные) и платёж по кредиту, если его срок в этом месяце.
 export interface Upcoming {
@@ -364,12 +370,13 @@ export function currentBalance(state: AppState, accountId: string): number {
   return acc.baseBalance + opDelta + debtDelta + creditDelta + transferDelta;
 }
 
-// На руках = сумма балансов всех счетов
+// На руках = только собственные деньги на обычных счетах.
+// Долг/лимит кредиток не включаем: это обязательства и доступный кредит,
+// а не деньги, которыми пользователь уже владеет.
 export function totalOnHand(state: AppState): number {
-  return state.accounts.reduce(
-    (sum, a) => sum + currentBalance(state, a.id),
-    0
-  );
+  return state.accounts
+    .filter((a) => a.kind !== "credit_card")
+    .reduce((sum, a) => sum + currentBalance(state, a.id), 0);
 }
 
 export interface MonthSummary {
@@ -691,10 +698,15 @@ export function debtsSummary(state: AppState): DebtsSummary {
   return { owedToMe, iOwe, net: owedToMe - iOwe };
 }
 
-// Реальная позиция = на руках − остаток по кредиту + что мне вернут − что я должен
+// Реальная позиция = на руках − кредиты − долг по кредиткам
+// + что мне вернут − что я должен.
 export function realPosition(state: AppState): number {
   const debts = debtsSummary(state);
   return (
-    totalOnHand(state) - creditInfo(state).remaining + debts.owedToMe - debts.iOwe
+    totalOnHand(state) -
+    creditInfo(state).remaining -
+    creditCardDebtTotal(state) +
+    debts.owedToMe -
+    debts.iOwe
   );
 }

@@ -208,6 +208,10 @@ export function Summary({
   const accountFlows = state.accounts
     .map((a) => ({ a, f: accountMonthFlow(state, a.id, month) }))
     .filter((x) => x.f.income > 0 || x.f.expense > 0);
+  const regularAccounts = state.accounts.filter((a) => a.kind !== "credit_card");
+  const creditCardAccounts = state.accounts.filter(
+    (a) => a.kind === "credit_card"
+  );
   // Расширенная статистика месяца
   const savingsRate =
     summary.income > 0 ? Math.round((summary.diff / summary.income) * 100) : 0;
@@ -331,15 +335,34 @@ export function Summary({
           <span className="text-[15px] font-medium">На руках</span>
           <span className="text-[17px] font-semibold">{formatMoney(onHand)}</span>
         </div>
-        {state.accounts.map((a) => {
-          const isCard = a.kind === "credit_card";
+        {regularAccounts.map((a) => (
+          <div
+            key={a.id}
+            className="flex items-center justify-between gap-3 border-t border-[var(--separator)] px-4 py-3 text-[15px]"
+          >
+            <span className="flex min-w-0 items-center gap-2.5 text-label-2">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: accountColor(a.id) }}
+              />
+              <span className="block min-w-0 truncate">{a.name}</span>
+            </span>
+            <Money value={currentBalance(state, a.id)} className="shrink-0" />
+          </div>
+        ))}
+        {creditCardAccounts.length > 0 && (
+          <div className="border-t border-[var(--separator)] px-4 pb-1 pt-3 text-[12px] font-semibold uppercase tracking-wide text-label-3">
+            Кредитки
+          </div>
+        )}
+        {creditCardAccounts.map((a) => {
           const debt = creditCardDebt(state, a.id);
           const limit = Math.max(0, a.creditLimit ?? 0);
           const available = creditCardAvailable(state, a.id);
           return (
             <div
               key={a.id}
-              className="flex items-center justify-between gap-3 border-t border-[var(--separator)] px-4 py-3 text-[15px]"
+              className="flex items-center justify-between gap-3 px-4 py-3 text-[15px]"
             >
               <span className="flex min-w-0 items-center gap-2.5 text-label-2">
                 <span
@@ -348,12 +371,10 @@ export function Summary({
                 />
                 <span className="min-w-0">
                   <span className="block truncate">{a.name}</span>
-                  {isCard && (
-                    <span className="block truncate text-[12px] text-label-3">
-                      долг {formatMoney(debt)}
-                      {limit > 0 ? ` · доступно ${formatMoney(available)}` : ""}
-                    </span>
-                  )}
+                  <span className="block truncate text-[12px] text-label-3">
+                    долг {formatMoney(debt)}
+                    {limit > 0 ? ` · доступно ${formatMoney(available)}` : ""}
+                  </span>
                 </span>
               </span>
               <Money value={currentBalance(state, a.id)} className="shrink-0" />
