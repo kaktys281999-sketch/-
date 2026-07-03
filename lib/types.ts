@@ -2,11 +2,17 @@
 export type OpType = "income" | "expense_personal" | "expense_work" | "credit_loan";
 
 // Счёт
+export type AccountKind = "regular" | "credit_card";
+
 export interface Account {
   id: string;
   name: string;
   // Стартовый баланс — остаток «на сейчас». Текущий баланс = base + сумма дельт операций.
   baseBalance: number;
+  // Обычный счёт или кредитная карта. Отсутствующее значение = обычный счёт.
+  kind?: AccountKind;
+  // День напоминания об оплате кредитной карты (1..31, для коротких месяцев обрезается).
+  creditPaymentDay?: number;
 }
 
 // Операция
@@ -71,10 +77,26 @@ export interface Credit {
   count: number; // всего платежей
   paymentDates: string[]; // расписание (ISO), считается из receivedDate + count
   accountId: string; // счёт по умолчанию для платежей
+  // Счёт, на который реально зачислено тело кредита. Если не задан — accountId.
+  receivedAccountId?: string;
+  // Старые кредиты уже могли быть учтены в baseBalance, поэтому undefined = не начислять.
+  receivedAffectsBalance?: boolean;
   payments: CreditPayment[]; // внесённые платежи
   note?: string;
   updatedAt?: number;
   deleted?: boolean; // надгробие для синхронизации
+}
+
+// Перевод между счетами: влияет на балансы, но не считается доходом/расходом месяца.
+export interface Transfer {
+  id: string;
+  date: string; // ISO yyyy-mm-dd
+  amount: number; // всегда положительное
+  fromAccountId: string;
+  toAccountId: string;
+  note: string;
+  updatedAt?: number;
+  deleted?: boolean;
 }
 
 // Цель накоплений
@@ -129,6 +151,7 @@ export interface Debt {
 export interface AppState {
   accounts: Account[];
   operations: Operation[];
+  transfers?: Transfer[];
   // легаси-поле одного кредита (миграция в credits при загрузке)
   credit?: CreditConfig;
   // кредиты и рассрочки

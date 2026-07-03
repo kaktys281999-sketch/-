@@ -13,6 +13,7 @@ import {
   AppState,
   Operation,
   Account,
+  AccountKind,
   Goal,
   Template,
   Debt,
@@ -20,12 +21,14 @@ import {
   Credit,
   CreditPayment,
   RecurringRule,
+  Transfer,
 } from "./types";
 import { todayISO, generatePaymentDates, monthKey } from "./format";
 import {
   operationDelta,
   debtAccountDelta,
   creditAccountDelta,
+  transferAccountDelta,
   dueRecurringOperations,
 } from "./calc";
 // Денежные селекторы живут в ./calc (без React) — реэкспортируем для потребителей
@@ -64,6 +67,7 @@ const INITIAL_STATE: AppState = {
     { id: "cash", name: "Наличные", baseBalance: 0 },
   ],
   operations: [],
+  transfers: [],
   credits: [
     {
       id: "credit-main",
@@ -109,8 +113,19 @@ interface StoreContextValue {
   deleteOperation: (id: string) => void;
   restoreOperation: (id: string) => void;
   setAccountBalance: (id: string, currentBalance: number) => void;
-  addAccount: (name: string) => void;
+  addAccount: (
+    name: string,
+    opts?: {
+      baseBalance?: number;
+      kind?: AccountKind;
+      creditPaymentDay?: number;
+      makePrimary?: boolean;
+    }
+  ) => void;
+  updateAccount: (id: string, patch: Partial<Omit<Account, "id">>) => void;
   renameAccount: (id: string, name: string) => void;
+  addTransfer: (t: Omit<Transfer, "id" | "updatedAt">) => void;
+  deleteTransfer: (id: string) => void;
   updateGoal: (goal: Partial<Goal>) => void;
   // Кредиты
   addCredit: (
@@ -195,6 +210,7 @@ function loadState(): AppState {
     return {
       accounts: ensureCashAccount(parsed.accounts ?? INITIAL_STATE.accounts),
       operations: parsed.operations ?? INITIAL_STATE.operations,
+      transfers: parsed.transfers ?? [],
       credits: migrateCredits(parsed),
       goal: { ...INITIAL_STATE.goal, ...parsed.goal },
       primaryAccountId: parsed.primaryAccountId ?? INITIAL_STATE.primaryAccountId,
@@ -272,12 +288,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // Опасен только случай «совсем нет записей» (новое/чистое устройство).
     // Если есть надгробия (осознанное удаление/сброс) — массив непустой,
     // их нужно отправить, чтобы изменения дошли до других устройств.
-    if (next.operations.length === 0) {
+    const hasLocalRecords =
+      next.operations.length > 0 ||
+      (next.transfers ?? []).length > 0 ||
+      (next.debts ?? []).length > 0 ||
+      (next.credits ?? []).length > 0 ||
+      (next.recurring ?? []).length > 0;
+
+    if (!hasLocalRecords) {
       // локально вообще нет операций — проверим, есть ли что-то в таблице
       try {
         const remote = await pull(url);
         const remoteLive = remote
-          ? remote.operations.filter((o) => !o.deleted).length
+          ? remote.operations.filter((o) => !o.deleted).length +
+            (remote.transfers ?? []).filter((t) => !t.deleted).length +
+            (remote.debts ?? []).filter((d) => !d.deleted).length +
+            (remote.credits ?? []).filter((c) => !c.deleted).length +
+            (remote.recurring ?? []).filter((r) => !r.deleted).length
           : 0;
         if (remoteLive > 0) {
           // в таблице есть данные, а у нас пусто — НЕ затираем
@@ -501,7 +528,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const creditDelta = (s.credits ?? [])
           .filter((c) => !c.deleted)
           .reduce((sum, c) => sum + creditAccountDelta(c, id), 0);
-        const deltaSum = opDelta + debtDelta + creditDelta;
+        const transferDelta = (s.transfers ?? [])
+          .filter((t) => !t.deleted)
+          .reduce((sum, t) => sum + transferAccountDelta(t, id), 0);
+        const deltaSum = opDelta + debtDelta + creditDelta + transferDelta;
         return {
           ...s,
           ...touch({
@@ -513,14 +543,63 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
     };
 
-    // Добавить новый счёт (с нулевым стартовым балансом)
-    const addAccount = (name: string) => {
+    const clampPaymentDay = (day?: number) =>
+      Math.min(31, Math.max(1, Math.round(day || 1)));
+
+    // Добавить новый счёт. Для кредитки baseBalance обычно отрицательный:
+    // текущий долг 5000 ₽ хранится как -5000 ₽.
+    const addAccount = (
+      name: string,
+      opts?: {
+        baseBalance?: number;
+        kind?: AccountKind;
+        creditPaymentDay?: number;
+        makePrimary?: boolean;
+      }
+    ) => {
       const trimmed = name.trim();
       if (!trimmed) return;
+      setState((s) => {
+        const kind = opts?.kind === "credit_card" ? "credit_card" : undefined;
+        const id = uid();
+        const account: Account = {
+          id,
+          name: trimmed,
+          baseBalance: opts?.baseBalance ?? 0,
+          kind,
+          creditPaymentDay:
+            kind === "credit_card"
+              ? clampPaymentDay(opts?.creditPaymentDay)
+              : undefined,
+        };
+        return {
+          ...s,
+          ...touch({
+            accounts: [...s.accounts, account],
+            primaryAccountId: opts?.makePrimary ? id : s.primaryAccountId,
+          }),
+        };
+      });
+    };
+
+    const updateAccount = (id: string, patch: Partial<Omit<Account, "id">>) => {
       setState((s) => ({
         ...s,
         ...touch({
-          accounts: [...s.accounts, { id: uid(), name: trimmed, baseBalance: 0 }],
+          accounts: s.accounts.map((a) => {
+            if (a.id !== id) return a;
+            const next: Account = { ...a, ...patch };
+            if (patch.name !== undefined) {
+              next.name = patch.name.trim() || a.name;
+            }
+            if (next.kind === "credit_card") {
+              next.creditPaymentDay = clampPaymentDay(next.creditPaymentDay);
+            } else {
+              next.kind = undefined;
+              next.creditPaymentDay = undefined;
+            }
+            return next;
+          }),
         }),
       }));
     };
@@ -531,6 +610,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ...s,
         ...touch({
           accounts: s.accounts.map((a) => (a.id === id ? { ...a, name } : a)),
+        }),
+      }));
+    };
+
+    const addTransfer = (t: Omit<Transfer, "id" | "updatedAt">) => {
+      const amount = Math.abs(t.amount);
+      if (!amount || t.fromAccountId === t.toAccountId) return;
+      const now = Date.now();
+      setState((s) => ({
+        ...s,
+        ...touch({
+          transfers: [
+            ...(s.transfers ?? []),
+            { ...t, amount, id: uid(), updatedAt: now },
+          ],
+        }),
+      }));
+    };
+
+    const deleteTransfer = (id: string) => {
+      const now = Date.now();
+      setState((s) => ({
+        ...s,
+        ...touch({
+          transfers: (s.transfers ?? []).map((t) =>
+            t.id === id ? { ...t, deleted: true, updatedAt: now } : t
+          ),
         }),
       }));
     };
@@ -855,9 +961,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           deleted: true,
           updatedAt: now,
         }));
+        const transferTombstones = (s.transfers ?? []).map((t) => ({
+          ...t,
+          deleted: true,
+          updatedAt: now,
+        }));
         return {
           ...INITIAL_STATE,
           operations: tombstones,
+          transfers: transferTombstones,
           debts: debtTombstones,
           updatedAt: now,
         };
@@ -876,7 +988,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       restoreOperation,
       setAccountBalance,
       addAccount,
+      updateAccount,
       renameAccount,
+      addTransfer,
+      deleteTransfer,
       updateGoal,
       addCredit,
       updateCredit,

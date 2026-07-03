@@ -10,6 +10,7 @@ import {
   downloadFile,
 } from "@/lib/export";
 import { TYPES } from "@/lib/categories";
+import { formatDateShort, formatMoney } from "@/lib/format";
 import { Card, NumberInput } from "./ui";
 
 // Категории расходов (личные + рабочие) — для лимитов
@@ -170,8 +171,58 @@ export function Settings() {
 }
 
 function AccountsCard({ fieldCls }: { fieldCls: string }) {
-  const { state, setAccountBalance, addAccount, renameAccount } = useStore();
+  const {
+    state,
+    setAccountBalance,
+    addAccount,
+    updateAccount,
+    renameAccount,
+    deleteTransfer,
+  } = useStore();
   const [newName, setNewName] = useState("");
+  const [newBalance, setNewBalance] = useState("");
+  const [newKind, setNewKind] = useState<"regular" | "credit_card">("regular");
+  const [newPaymentDay, setNewPaymentDay] = useState("25");
+  const [makePrimary, setMakePrimary] = useState(false);
+
+  const chip = (active: boolean) =>
+    `rounded-full px-3 py-1.5 text-[13px] font-medium ${
+      active
+        ? "bg-brand text-white"
+        : "bg-black/[0.06] text-slate-700 dark:bg-white/10 dark:text-slate-200"
+    }`;
+
+  function num(s: string) {
+    return Number(s.replace(/\s/g, "").replace(",", "."));
+  }
+
+  function submitAccount() {
+    if (!newName.trim()) return;
+    const rawBalance = num(newBalance);
+    const normalizedBalance = Number.isNaN(rawBalance) ? 0 : rawBalance;
+    const rawDay = Math.round(Math.abs(num(newPaymentDay)));
+    addAccount(newName, {
+      baseBalance:
+        newKind === "credit_card"
+          ? -Math.abs(normalizedBalance)
+          : normalizedBalance,
+      kind: newKind,
+      creditPaymentDay: rawDay || 1,
+      makePrimary: makePrimary && newKind === "regular",
+    });
+    setNewName("");
+    setNewBalance("");
+    setNewKind("regular");
+    setNewPaymentDay("25");
+    setMakePrimary(false);
+  }
+
+  const liveTransfers = [...(state.transfers ?? [])]
+    .filter((t) => !t.deleted)
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .slice(0, 8);
+  const accountName = (id: string) =>
+    state.accounts.find((a) => a.id === id)?.name ?? "—";
 
   return (
     <div>
@@ -180,55 +231,172 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
         {state.accounts.map((a, i) => (
           <div
             key={a.id}
-            className={`flex items-center justify-between gap-3 px-4 py-2.5 ${
+            className={`px-4 py-2.5 ${
               i > 0 ? "border-t border-[var(--separator)]" : ""
             }`}
           >
-            <input
-              type="text"
-              value={a.name}
-              onChange={(e) => renameAccount(a.id, e.target.value)}
-              aria-label="Название счёта"
-              className="min-w-0 flex-1 bg-transparent text-[15px] outline-none focus:ring-0"
-            />
-            <NumberInput
-              value={Math.round(currentBalance(state, a.id))}
-              onCommit={(n) => setAccountBalance(a.id, n)}
-              className={`${fieldCls} w-28 shrink-0 text-right`}
-            />
+            <div className="flex items-center justify-between gap-3">
+              <input
+                type="text"
+                value={a.name}
+                onChange={(e) => renameAccount(a.id, e.target.value)}
+                aria-label="Название счёта"
+                className="min-w-0 flex-1 bg-transparent text-[15px] outline-none focus:ring-0"
+              />
+              <NumberInput
+                value={Math.round(currentBalance(state, a.id))}
+                onCommit={(n) => setAccountBalance(a.id, n)}
+                className={`${fieldCls} w-28 shrink-0 text-right`}
+              />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  updateAccount(a.id, {
+                    kind: a.kind === "credit_card" ? "regular" : "credit_card",
+                    creditPaymentDay: a.creditPaymentDay ?? 25,
+                  })
+                }
+                className={chip(a.kind === "credit_card")}
+              >
+                Кредитка
+              </button>
+              {a.kind === "credit_card" && (
+                <>
+                  <span className="text-[13px] text-label-2">оплата</span>
+                  <NumberInput
+                    value={a.creditPaymentDay ?? 25}
+                    onCommit={(n) =>
+                      updateAccount(a.id, {
+                        creditPaymentDay: Math.min(
+                          31,
+                          Math.max(1, Math.round(Math.abs(n)))
+                        ),
+                      })
+                    }
+                    className={`${fieldCls} w-16 px-2 py-1.5 text-center text-[13px]`}
+                  />
+                  <span className="text-[13px] text-label-2">числа</span>
+                </>
+              )}
+            </div>
           </div>
         ))}
         {/* Добавить счёт */}
-        <div className="flex items-center gap-2 border-t border-[var(--separator)] px-4 py-2.5">
-          <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && newName.trim()) {
-                addAccount(newName);
-                setNewName("");
-              }
-            }}
-            placeholder="Новый счёт"
-            className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-label-3"
-          />
-          <button
-            type="button"
-            disabled={!newName.trim()}
-            onClick={() => {
-              addAccount(newName);
-              setNewName("");
-            }}
-            className="shrink-0 rounded-full bg-brand px-3.5 py-1.5 text-[14px] font-semibold text-white disabled:opacity-40"
-          >
-            Добавить
-          </button>
+        <div className="space-y-3 border-t border-[var(--separator)] px-4 py-3">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setNewKind("regular")}
+              className={chip(newKind === "regular")}
+            >
+              Обычный
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setNewKind("credit_card");
+                setMakePrimary(false);
+              }}
+              className={chip(newKind === "credit_card")}
+            >
+              Кредитка
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newName.trim()) {
+                  submitAccount();
+                }
+              }}
+              placeholder="Новый счёт"
+              className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-label-3"
+            />
+            <input
+              type="number"
+              inputMode="decimal"
+              value={newBalance}
+              onChange={(e) => setNewBalance(e.target.value)}
+              onWheel={(e) => e.currentTarget.blur()}
+              placeholder={newKind === "credit_card" ? "Долг" : "Остаток"}
+              className={`${fieldCls} w-28 shrink-0 text-right`}
+            />
+            {newKind === "credit_card" && (
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                max="31"
+                value={newPaymentDay}
+                onChange={(e) => setNewPaymentDay(e.target.value)}
+                onWheel={(e) => e.currentTarget.blur()}
+                aria-label="День оплаты кредитной карты"
+                className={`${fieldCls} w-20 shrink-0 text-center`}
+              />
+            )}
+            <button
+              type="button"
+              disabled={!newName.trim()}
+              onClick={submitAccount}
+              className="shrink-0 rounded-full bg-brand px-3.5 py-1.5 text-[14px] font-semibold text-white disabled:opacity-40"
+            >
+              Добавить
+            </button>
+          </div>
+          {newKind === "regular" && (
+            <label className="flex items-center gap-2 text-[13px] text-label-2">
+              <input
+                type="checkbox"
+                checked={makePrimary}
+                onChange={(e) => setMakePrimary(e.target.checked)}
+                className="h-4 w-4 accent-brand"
+              />
+              Сделать основным
+            </label>
+          )}
         </div>
       </Card>
+      {liveTransfers.length > 0 && (
+        <Card className="mt-2 !p-0">
+          {liveTransfers.map((t, i) => (
+            <div
+              key={t.id}
+              className={`flex items-center justify-between gap-3 px-4 py-3 text-[14px] ${
+                i > 0 ? "border-t border-[var(--separator)]" : ""
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="truncate font-medium">
+                  {accountName(t.fromAccountId)} → {accountName(t.toAccountId)}
+                </div>
+                <div className="truncate text-[13px] text-label-2">
+                  {formatDateShort(t.date)}
+                  {t.note ? ` · ${t.note}` : ""}
+                </div>
+              </div>
+              <span className="flex shrink-0 items-center gap-3">
+                <span className="font-semibold">{formatMoney(t.amount)}</span>
+                <button
+                  type="button"
+                  onClick={() => deleteTransfer(t.id)}
+                  aria-label="Удалить перевод"
+                  className="text-label-3"
+                >
+                  ✕
+                </button>
+              </span>
+            </div>
+          ))}
+        </Card>
+      )}
       <p className="mt-1.5 px-1 text-[13px] text-label-2">
-        Баланс — остаток «на сейчас», дальше меняется операциями. Имя счёта можно
-        изменить. Счёт нельзя удалить, чтобы не потерять связанные операции.
+        У кредитки текущий долг хранится как отрицательный баланс. Траты с неё
+        увеличивают долг, а оплата проходит переводом с обычного счёта.
       </p>
     </div>
   );
