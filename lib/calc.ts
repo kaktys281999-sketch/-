@@ -1,6 +1,6 @@
 // Чистые денежные вычисления (без React) — чтобы их можно было покрыть тестами.
 // store.tsx реэкспортирует всё отсюда, поэтому существующие импорты не меняются.
-import { AppState, Operation, Debt, Credit, RecurringRule } from "./types";
+import { AppState, Operation, Debt, Credit, RecurringRule, Transfer, Account } from "./types";
 import { getCategorySign } from "./categories";
 import { monthKeyFromISO, shiftMonth } from "./format";
 
@@ -102,13 +102,41 @@ export function debtAccountDelta(debt: Debt, accountId: string): number {
 }
 
 // Влияние кредита на баланс счёта: платежи списываются со счёта (−).
-// Сама полученная сумма уже учтена в стартовом балансе, поэтому её не добавляем.
+// Старые кредиты могли быть уже учтены в стартовом балансе, поэтому тело
+// кредита начисляем только при явном receivedAffectsBalance=true.
 export function creditAccountDelta(credit: Credit, accountId: string): number {
   let delta = 0;
+  if (credit.receivedAffectsBalance) {
+    const targetAccountId = credit.receivedAccountId || credit.accountId;
+    if (targetAccountId === accountId) delta += credit.received;
+  }
   for (const p of credit.payments) {
     if (p.accountId === accountId) delta -= p.amount;
   }
   return delta;
+}
+
+// Влияние перевода на баланс конкретного счёта.
+export function transferAccountDelta(t: Transfer, accountId: string): number {
+  if (t.fromAccountId === t.toAccountId) return 0;
+  if (t.fromAccountId === accountId) return -t.amount;
+  if (t.toAccountId === accountId) return t.amount;
+  return 0;
+}
+
+export function creditCardDueDate(account: Account, month: string): string | null {
+  if (account.kind !== "credit_card" || !account.creditPaymentDay) return null;
+  const day = Math.min(
+    Math.max(1, account.creditPaymentDay),
+    lastDayOfMonth(month)
+  );
+  return `${month}-${pad2(day)}`;
+}
+
+export function creditCardDebt(state: AppState, accountId: string): number {
+  const acc = state.accounts.find((a) => a.id === accountId);
+  if (!acc || acc.kind !== "credit_card") return 0;
+  return Math.max(0, -currentBalance(state, accountId));
 }
 
 // Предстоящие в текущем месяце списания: будущие регулярные операции этого
@@ -320,7 +348,10 @@ export function currentBalance(state: AppState, accountId: string): number {
   const creditDelta = (state.credits ?? [])
     .filter((c) => !c.deleted)
     .reduce((sum, c) => sum + creditAccountDelta(c, accountId), 0);
-  return acc.baseBalance + opDelta + debtDelta + creditDelta;
+  const transferDelta = (state.transfers ?? [])
+    .filter((t) => !t.deleted)
+    .reduce((sum, t) => sum + transferAccountDelta(t, accountId), 0);
+  return acc.baseBalance + opDelta + debtDelta + creditDelta + transferDelta;
 }
 
 // На руках = сумма балансов всех счетов
@@ -371,6 +402,13 @@ export function accountMonthFlow(
     const d = operationAccountDelta(o, accountId);
     if (d > 0) income += d;
     else if (d < 0) expense += -d;
+  }
+  for (const t of state.transfers ?? []) {
+    if (t.deleted) continue;
+    if (monthKeyFromISO(t.date) !== mKey) continue;
+    const d = transferAccountDelta(t, accountId);
+    if (d >= 0) income += d;
+    else expense += -d;
   }
   return { income, expense, net: income - expense };
 }

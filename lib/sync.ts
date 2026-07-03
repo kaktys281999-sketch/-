@@ -5,6 +5,7 @@ import {
   Credit,
   CreditConfig,
   RecurringRule,
+  Transfer,
 } from "./types";
 
 // Формат данных, которыми приложение обменивается с Google-таблицей
@@ -13,6 +14,7 @@ export interface SyncPayload {
   updatedAt: number;
   accounts: AppState["accounts"];
   operations: AppState["operations"];
+  transfers?: AppState["transfers"];
   credit?: CreditConfig; // легаси: один кредит (для старых данных)
   credits?: Credit[];
   goal: AppState["goal"];
@@ -37,6 +39,7 @@ export function legacyCreditToCredit(c: CreditConfig): Credit {
     count: c.count ?? 0,
     paymentDates: c.paymentDates ?? [],
     accountId: "",
+    receivedAffectsBalance: false,
     payments: [],
     updatedAt: 0,
   };
@@ -58,6 +61,7 @@ export function toPayload(s: AppState): SyncPayload {
     updatedAt: s.updatedAt,
     accounts: s.accounts,
     operations: s.operations,
+    transfers: s.transfers ?? [],
     credits: s.credits ?? [],
     goal: s.goal,
     primaryAccountId: s.primaryAccountId,
@@ -75,6 +79,7 @@ export function fromPayload(p: SyncPayload): AppState {
   return {
     accounts: p.accounts,
     operations: p.operations,
+    transfers: p.transfers ?? [],
     credits: resolveCredits(p.credits, p.credit),
     goal: p.goal,
     primaryAccountId: p.primaryAccountId,
@@ -107,6 +112,16 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
     }
   }
   const operations = Array.from(byId.values());
+
+  // Переводы сливаем по id: побеждает более свежая версия.
+  const transferById = new Map<string, Transfer>();
+  for (const t of local.transfers ?? []) transferById.set(t.id, t);
+  for (const t of remote.transfers ?? []) {
+    const cur = transferById.get(t.id);
+    if (!cur) transferById.set(t.id, t);
+    else transferById.set(t.id, (t.updatedAt ?? 0) >= (cur.updatedAt ?? 0) ? t : cur);
+  }
+  const transfers = Array.from(transferById.values());
 
   // Долги сливаем так же по id: побеждает более свежая версия (по updatedAt)
   const debtById = new Map<string, Debt>();
@@ -161,6 +176,7 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
     busDefaultApplied: base.busDefaultApplied ?? false,
     recurring,
     operations,
+    transfers,
     debts,
     credits,
     updatedAt: Math.max(local.updatedAt ?? 0, remote.updatedAt ?? 0),

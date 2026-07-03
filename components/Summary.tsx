@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   useStore,
   totalOnHand,
@@ -18,6 +19,8 @@ import {
   subscriptionsMonthlyTotal,
   expensePace,
   notesBreakdown,
+  creditCardDebt,
+  creditCardDueDate,
 } from "@/lib/store";
 import {
   formatMoney,
@@ -34,6 +37,22 @@ import { Card, Money, ProgressBar, Sparkline } from "./ui";
 import { SpendingBreakdown } from "./SpendingBreakdown";
 import { MonthlyTrend } from "./MonthlyTrend";
 import { accountColor } from "@/lib/accounts";
+import { Account } from "@/lib/types";
+
+type ReminderKind = "subscription" | "credit" | "debt" | "credit_card";
+
+type Reminder = {
+  key: string;
+  days: number;
+  iso: string;
+  title: string;
+  amount: number;
+  kind: ReminderKind;
+  targetId: string;
+  defaultAccountId: string;
+  actionLabel: string;
+  onOpen?: () => void;
+};
 
 export function Summary({
   month,
@@ -50,7 +69,9 @@ export function Summary({
   onOpenSubscriptions?: () => void;
   onOpenSearch?: (query: string) => void;
 }) {
-  const { state, paySubscription, addCreditPayment, settleDebt } = useStore();
+  const { state, paySubscription, addCreditPayment, addDebtPayment, addOperation } =
+    useStore();
+  const [activeReminder, setActiveReminder] = useState<Reminder | null>(null);
   const onHand = totalOnHand(state);
   const summary = monthSummary(state, month);
   const credit = creditInfo(state);
@@ -64,17 +85,18 @@ export function Summary({
 
   // Единые напоминания с действием: подписки, кредиты, долги
   // в ближайшие 7 дней или просроченные.
-  type Reminder = {
-    key: string;
-    days: number;
-    iso: string;
-    title: string;
-    amount: number;
-    actionLabel: string;
-    onAction: () => void;
-    onOpen?: () => void;
-  };
   const reminders: Reminder[] = [];
+  const defaultPayAccount = (excludeId?: string) => {
+    const primaryAcc = state.accounts.find((a) => a.id === primary);
+    if (primaryAcc && primaryAcc.id !== excludeId && primaryAcc.kind !== "credit_card") {
+      return primaryAcc.id;
+    }
+    return (
+      state.accounts.find((a) => a.id !== excludeId && a.kind !== "credit_card")?.id ??
+      state.accounts.find((a) => a.id !== excludeId)?.id ??
+      ""
+    );
+  };
 
   for (const s of subscriptionStatuses(state, realMonth, today)) {
     if (s.paid) continue;
@@ -86,8 +108,10 @@ export function Summary({
       iso: s.date,
       title: `Подписка «${s.rule.title || s.rule.category}»`,
       amount: s.rule.amount,
+      kind: "subscription",
+      targetId: s.rule.id,
+      defaultAccountId: s.rule.accountId,
       actionLabel: "Оплатить",
-      onAction: () => paySubscription(s.rule.id),
       onOpen: onOpenSubscriptions,
     });
   }
@@ -102,13 +126,10 @@ export function Summary({
       iso: v.nextPaymentDate,
       title: `Платёж по «${v.credit.name}»`,
       amount: v.nextPaymentAmount,
+      kind: "credit",
+      targetId: v.credit.id,
+      defaultAccountId: acc,
       actionLabel: "Внести",
-      onAction: () =>
-        addCreditPayment(v.credit.id, {
-          date: today,
-          amount: v.nextPaymentAmount,
-          accountId: acc,
-        }),
       onOpen: onOpenCredits,
     });
   }
@@ -125,12 +146,55 @@ export function Summary({
         ? `Вернуть долг «${d.person || "без имени"}»`
         : `Возврат от «${d.person || "без имени"}»`,
       amount: debtOutstanding(d),
+      kind: "debt",
+      targetId: d.id,
+      defaultAccountId: d.accountId,
       actionLabel: iOwe ? "Погасить" : "Получено",
-      onAction: () => settleDebt(d.id, d.accountId),
       onOpen: onOpenDebts,
     });
   }
+  for (const a of state.accounts) {
+    if (a.kind !== "credit_card") continue;
+    const amount = creditCardDebt(state, a.id);
+    if (amount <= 0) continue;
+    const date = creditCardDueDate(a, realMonth);
+    if (!date) continue;
+    const days = daysUntil(date);
+    if (days > 7) continue;
+    reminders.push({
+      key: `cc-${a.id}`,
+      days,
+      iso: date,
+      title: `Оплата кредитки «${a.name}»`,
+      amount,
+      kind: "credit_card",
+      targetId: a.id,
+      defaultAccountId: defaultPayAccount(a.id),
+      actionLabel: "Оплата",
+    });
+  }
   reminders.sort((a, b) => a.days - b.days);
+
+  function submitReminderPayment(r: Reminder, amount: number, accountId: string, date: string) {
+    if (r.kind === "subscription") {
+      paySubscription(r.targetId, { amount, accountId, date });
+    } else if (r.kind === "credit") {
+      addCreditPayment(r.targetId, { amount, accountId, date });
+    } else if (r.kind === "debt") {
+      addDebtPayment(r.targetId, { amount, accountId, date });
+    } else {
+      addOperation({
+        date,
+        type: "transfer",
+        category: "",
+        amount,
+        accountId,
+        toAccountId: r.targetId,
+        note: r.title,
+      });
+    }
+    setActiveReminder(null);
+  }
 
   // Предстоящие списания текущего месяца (показываем только для текущего месяца)
   const isCurrentMonth = month === monthKey(new Date());
@@ -204,9 +268,17 @@ export function Summary({
         </div>
       </div>
 
-      {/* Напоминания с действием: подписки, кредиты, долги */}
+      {/* Напоминания с действием: подписки, кредиты, долги, кредитки */}
       {reminders.length > 0 && (
         <div className="space-y-2 md:col-span-2">
+          {activeReminder && (
+            <ReminderPaymentPanel
+              reminder={activeReminder}
+              accounts={state.accounts}
+              onCancel={() => setActiveReminder(null)}
+              onSubmit={submitReminderPayment}
+            />
+          )}
           {reminders.map((r) => {
             const urgent = r.days <= 0;
             return (
@@ -245,7 +317,7 @@ export function Summary({
                 </button>
                 <button
                   type="button"
-                  onClick={r.onAction}
+                  onClick={() => setActiveReminder(r)}
                   className="shrink-0 rounded-full bg-brand px-3.5 py-1.5 text-[14px] font-semibold text-white active:scale-95"
                 >
                   {r.actionLabel}
@@ -601,6 +673,180 @@ function Metric({
     </button>
   ) : (
     <div className="text-center">{inner}</div>
+  );
+}
+
+function ReminderPaymentPanel({
+  reminder,
+  accounts,
+  onCancel,
+  onSubmit,
+}: {
+  reminder: Reminder;
+  accounts: Account[];
+  onCancel: () => void;
+  onSubmit: (
+    reminder: Reminder,
+    amount: number,
+    accountId: string,
+    date: string
+  ) => void;
+}) {
+  const cardPayment = reminder.kind === "credit_card";
+  const regularAccounts = accounts.filter(
+    (a) => a.id !== reminder.targetId && a.kind !== "credit_card"
+  );
+  const accountOptions =
+    cardPayment && regularAccounts.length > 0
+      ? regularAccounts
+      : accounts.filter((a) => a.id !== reminder.targetId);
+  const initialAccount = accountOptions.some(
+    (a) => a.id === reminder.defaultAccountId
+  )
+    ? reminder.defaultAccountId
+    : accountOptions[0]?.id ?? "";
+
+  const [amountText, setAmountText] = useState(String(Math.round(reminder.amount)));
+  const [accountId, setAccountId] = useState(initialAccount);
+  const [date, setDate] = useState(todayISO());
+  const [error, setError] = useState("");
+
+  const amount = Math.abs(Number(amountText.replace(/\s/g, "").replace(",", ".")));
+  const fieldCls =
+    "w-full rounded-xl bg-black/[0.04] px-3.5 py-2.5 outline-none focus:ring-2 focus:ring-brand/40 dark:bg-white/[0.06] dark:text-slate-100";
+  const chip = (active: boolean) =>
+    `rounded-full px-3 py-1.5 text-[13px] font-medium ${
+      active
+        ? "bg-brand text-white"
+        : "bg-black/[0.06] text-slate-700 dark:bg-white/10 dark:text-slate-200"
+    }`;
+
+  function submit() {
+    if (!amount || Number.isNaN(amount)) {
+      setError("Введите сумму больше нуля");
+      return;
+    }
+    if (!accountId) {
+      setError("Выберите счёт");
+      return;
+    }
+    onSubmit(reminder, amount, accountId, date);
+  }
+
+  return (
+    <Card>
+      <div className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="truncate text-[15px] font-semibold">
+              {reminder.title}
+            </div>
+            <div className="text-[13px] text-label-2">
+              {relativeDayLabel(reminder.iso)} · обычно {formatMoney(reminder.amount)}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Закрыть"
+            className="shrink-0 text-label-3"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            value={amountText}
+            onChange={(e) => {
+              if (error) setError("");
+              setAmountText(e.target.value);
+            }}
+            onWheel={(e) => e.currentTarget.blur()}
+            className={fieldCls}
+          />
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className={`${fieldCls} w-[9.5rem]`}
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setAmountText(String(Math.round(reminder.amount)))}
+            className={chip(false)}
+          >
+            {reminder.kind === "subscription" ? "Типовая" : "Вся сумма"}
+          </button>
+          {reminder.amount > 1 && (
+            <button
+              type="button"
+              onClick={() => setAmountText(String(Math.round(reminder.amount / 2)))}
+              className={chip(false)}
+            >
+              Половина
+            </button>
+          )}
+        </div>
+
+        {accountOptions.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {accountOptions.map((a) => (
+              <button
+                type="button"
+                key={a.id}
+                onClick={() => setAccountId(a.id)}
+                className={chip(accountId === a.id)}
+              >
+                {a.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {cardPayment && (
+          <p className="text-[13px] text-label-2">
+            Оплата кредитки запишется переводом: выбранный счёт уменьшится,
+            баланс карты приблизится к нулю.
+          </p>
+        )}
+
+        {error && (
+          <p className="text-[13px] font-medium text-red-600 dark:text-red-400">
+            {error}
+          </p>
+        )}
+
+        <div className="flex gap-2.5">
+          {reminder.onOpen && (
+            <button
+              type="button"
+              onClick={() => {
+                reminder.onOpen?.();
+                onCancel();
+              }}
+              className="flex-1 rounded-xl bg-black/[0.06] py-3 text-[15px] font-semibold text-brand dark:bg-white/10"
+            >
+              Раздел
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={submit}
+            className="flex-[2] rounded-xl bg-brand py-3 text-[15px] font-semibold text-white disabled:opacity-40"
+            disabled={!accountId}
+          >
+            Записать
+          </button>
+        </div>
+      </div>
+    </Card>
   );
 }
 

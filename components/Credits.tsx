@@ -14,7 +14,7 @@ import {
 import { Card, Money, ProgressBar, NumberInput, SearchField } from "./ui";
 
 export function Credits() {
-  const { state, addCreditPayment } = useStore();
+  const { state } = useStore();
   const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -111,13 +111,7 @@ export function Credits() {
             view={v}
             accountName={accountName}
             onOpen={() => setOpenId(v.credit.id)}
-            onQuickPay={() =>
-              addCreditPayment(v.credit.id, {
-                date: todayISO(),
-                amount: v.nextPaymentAmount,
-                accountId: payAccountFor(v.credit, state.primaryAccountId),
-              })
-            }
+            onQuickPay={() => setOpenId(v.credit.id)}
           />
         ))}
       </div>
@@ -218,7 +212,7 @@ function CreditCard({
             onClick={onQuickPay}
             className="w-full rounded-xl bg-brand/10 py-2 text-[14px] font-semibold text-brand active:bg-brand/20"
           >
-            Внести платёж · {formatMoney(c.payment)} ({accountName(
+            Внести платёж… {formatMoney(c.payment)} ({accountName(
               payAccountFor(c)
             )})
           </button>
@@ -244,6 +238,7 @@ function CreditForm({ onClose }: { onClose: () => void }) {
   const [payment, setPayment] = useState("");
   const [count, setCount] = useState("");
   const [accountId, setAccountId] = useState(defaultAccount);
+  const [receivedAffectsBalance, setReceivedAffectsBalance] = useState(true);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
 
@@ -257,16 +252,19 @@ function CreditForm({ onClose }: { onClose: () => void }) {
     e.preventDefault();
     const pay = num(payment);
     const cnt = Math.round(num(count));
+    const receivedAmount = num(received) || 0;
     if (!name.trim()) return setError("Укажите название");
     if (!pay) return setError("Введите размер платежа");
     if (!cnt) return setError("Введите количество платежей");
     addCredit({
       name: name.trim(),
-      received: num(received) || 0,
+      received: receivedAmount,
       receivedDate,
       payment: pay,
       count: cnt,
       accountId,
+      receivedAccountId: accountId,
+      receivedAffectsBalance: receivedAffectsBalance && receivedAmount > 0,
       note: note.trim(),
     });
     onClose();
@@ -352,8 +350,21 @@ function CreditForm({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
+          <label className="flex items-start gap-2 rounded-xl bg-black/[0.04] px-3.5 py-3 text-[14px] text-label-2 dark:bg-white/[0.06]">
+            <input
+              type="checkbox"
+              checked={receivedAffectsBalance}
+              onChange={(e) => setReceivedAffectsBalance(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+            />
+            <span>
+              Зачислить полученную сумму на выбранный счёт. Для рассрочки без
+              получения денег выключи этот пункт.
+            </span>
+          </label>
+
           <div>
-            <label className={labelCls}>Счёт для платежей</label>
+            <label className={labelCls}>Счёт получения и платежей</label>
             <div className="flex flex-wrap gap-2">
               {state.accounts.map((a) => (
                 <button
@@ -487,6 +498,11 @@ function CreditDetail({ credit, onClose }: { credit: Credit; onClose: () => void
         {v.overpay !== 0 && credit.received > 0 && (
           <div className="mt-2 text-[13px] text-label-2">
             Переплата {formatMoney(v.overpay)}
+          </div>
+        )}
+        {credit.receivedAffectsBalance && credit.received > 0 && (
+          <div className="mt-2 text-[13px] text-label-2">
+            Получено на {accountName(credit.receivedAccountId || credit.accountId)}
           </div>
         )}
         {credit.note && (
@@ -629,6 +645,45 @@ function CreditDetail({ credit, onClose }: { credit: Credit; onClose: () => void
                 ))}
               </div>
             </div>
+            <label className="flex items-start gap-2 text-[15px] text-label-2">
+              <input
+                type="checkbox"
+                checked={!!credit.receivedAffectsBalance}
+                onChange={(e) =>
+                  updateCredit(credit.id, {
+                    receivedAffectsBalance: e.target.checked,
+                    receivedAccountId: credit.receivedAccountId || credit.accountId,
+                  })
+                }
+                className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+              />
+              <span>Зачислять полученную сумму на баланс счёта</span>
+            </label>
+            {credit.receivedAffectsBalance && (
+              <div>
+                <label className="mb-1 block text-sm text-slate-600 dark:text-slate-300">
+                  Счёт получения
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {state.accounts.map((a) => (
+                    <button
+                      type="button"
+                      key={a.id}
+                      onClick={() =>
+                        updateCredit(credit.id, { receivedAccountId: a.id })
+                      }
+                      className={`rounded-full px-3 py-1.5 text-[13px] font-medium ${
+                        (credit.receivedAccountId || credit.accountId) === a.id
+                          ? "bg-brand text-white"
+                          : "bg-black/[0.06] text-slate-700 dark:bg-white/10 dark:text-slate-200"
+                      }`}
+                    >
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       )}

@@ -41,7 +41,7 @@ type SubItem = {
 };
 
 export function Subscriptions() {
-  const { state, paySubscription } = useStore();
+  const { state } = useStore();
   const [adding, setAdding] = useState<Partial<SubSuggestion> | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [mode, setMode] = useState<"subscriptions" | "recurring">(
@@ -133,7 +133,7 @@ export function Subscriptions() {
           accountName={accountName}
           onAdd={(preset) => setAdding(preset)}
           onOpen={(id) => setOpenId(id)}
-          onPay={(id) => paySubscription(id)}
+          onPay={(id) => setOpenId(id)}
         />
       )}
     </div>
@@ -275,7 +275,7 @@ function SubsContent({
                         : "bg-black/[0.06] text-brand dark:bg-white/10"
                     }`}
                   >
-                    Оплатить
+                    Оплатить…
                   </button>
                 )}
               </div>

@@ -4,6 +4,7 @@ import {
   operationDelta,
   debtAccountDelta,
   creditAccountDelta,
+  transferAccountDelta,
   currentBalance,
   totalOnHand,
   monthSummary,
@@ -26,9 +27,11 @@ import {
   categoryBudget,
   notesBreakdown,
   categoryNotesBreakdown,
+  creditCardDebt,
+  creditCardDueDate,
 } from "./calc";
 import { mergeStates } from "./sync";
-import { AppState, Operation, Debt, Credit, RecurringRule } from "./types";
+import { AppState, Operation, Debt, Credit, RecurringRule, Transfer } from "./types";
 
 let passed = 0;
 let failed = 0;
@@ -97,6 +100,18 @@ function credit(p: Partial<Credit>): Credit {
     paymentDates: [],
     accountId: "yandex",
     payments: [],
+    ...p,
+  };
+}
+
+function transfer(p: Partial<Transfer>): Transfer {
+  return {
+    id: `t${n++}`,
+    date: "2026-05-10",
+    amount: 0,
+    fromAccountId: "sber",
+    toAccountId: "yandex",
+    note: "",
     ...p,
   };
 }
@@ -198,6 +213,25 @@ eq([cvPartial.remaining, cvPartial.isPaidOff, cvPartial.paidCount], [1500, false
 // ---- creditAccountDelta (платёж списывает со счёта) ----
 eq(creditAccountDelta(c1, "yandex"), -5000, "платёж по кредиту списан с Яндекса");
 eq(creditAccountDelta(c1, "sber"), 0, "чужой счёт не задет");
+const cReceived = credit({
+  received: 30000,
+  accountId: "sber",
+  receivedAffectsBalance: true,
+  payments: [{ id: "p", date: "2026-01-02", amount: 1000, accountId: "sber" }],
+});
+eq(creditAccountDelta(cReceived, "sber"), 29000, "новый кредит: тело начислено, платёж списан");
+const cOldReceived = credit({ received: 30000, accountId: "sber" });
+eq(creditAccountDelta(cOldReceived, "sber"), 0, "старый кредит без флага не начисляет тело повторно");
+
+// ---- transferAccountDelta ----
+const trPayCard = transfer({
+  amount: 4000,
+  fromAccountId: "sber",
+  toAccountId: "card",
+});
+eq(transferAccountDelta(trPayCard, "sber"), -4000, "перевод: источник уменьшается");
+eq(transferAccountDelta(trPayCard, "card"), 4000, "перевод: получатель увеличивается");
+eq(transferAccountDelta(trPayCard, "yandex"), 0, "перевод: чужой счёт не задет");
 
 // ---- creditInfo (агрегат по нескольким кредитам) ----
 const s4 = state({
@@ -291,10 +325,30 @@ const sf = state({
     op({ type: "expense_personal", amount: 1000, accountId: "yandex", date: "2026-06-05" }),
     op({ type: "expense_personal", amount: 999, accountId: "sber", date: "2026-05-30" }), // другой месяц
   ],
+  transfers: [
+    transfer({ amount: 3000, fromAccountId: "sber", toAccountId: "yandex", date: "2026-06-07" }),
+  ],
 });
-eq(accountMonthFlow(sf, "sber", "2026-06"), { income: 5000, expense: 700, net: 4300 }, "обороты Сбера за июнь");
-eq(accountMonthFlow(sf, "yandex", "2026-06"), { income: 0, expense: 1000, net: -1000 }, "обороты Яндекса за июнь");
+eq(accountMonthFlow(sf, "sber", "2026-06"), { income: 5000, expense: 3700, net: 1300 }, "обороты Сбера за июнь с переводом");
+eq(accountMonthFlow(sf, "yandex", "2026-06"), { income: 3000, expense: 1000, net: 2000 }, "обороты Яндекса за июнь с переводом");
 eq(accountMonthFlow(sf, "tinkoff", "2026-06"), { income: 0, expense: 0, net: 0 }, "нет оборотов");
+
+// ---- credit card account ----
+const sCard = state({
+  accounts: [
+    { id: "sber", name: "Сбер", baseBalance: 10000 },
+    { id: "card", name: "Кредитка", baseBalance: 0, kind: "credit_card", creditPaymentDay: 31 },
+  ],
+  operations: [
+    op({ accountId: "card", amount: 2500, date: "2026-06-05" }),
+  ],
+  transfers: [
+    transfer({ amount: 1000, fromAccountId: "sber", toAccountId: "card", date: "2026-06-10" }),
+  ],
+});
+eq(currentBalance(sCard, "card"), -1500, "кредитка: трата увеличила долг, перевод уменьшил");
+eq(creditCardDebt(sCard, "card"), 1500, "долг по кредитке = отрицательный баланс по модулю");
+eq(creditCardDueDate(sCard.accounts[1], "2026-02"), "2026-02-28", "день оплаты кредитки обрезается под месяц");
 
 // ---- accountTrend ----
 const st6 = state({
