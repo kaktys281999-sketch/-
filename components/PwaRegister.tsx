@@ -9,9 +9,12 @@ export function PwaRegister() {
       return;
     }
     const onLoad = () => {
-      navigator.serviceWorker.register("/sw.js").catch(() => {
-        // регистрация не критична — приложение работает и без неё
-      });
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then((registration) => registration.update())
+        .catch(() => {
+          // регистрация не критична — приложение работает и без неё
+        });
     };
     if (document.readyState === "complete") onLoad();
     else window.addEventListener("load", onLoad);

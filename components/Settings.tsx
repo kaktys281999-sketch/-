@@ -184,6 +184,12 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
   const [newKind, setNewKind] = useState<"regular" | "credit_card">("regular");
   const [newPaymentDay, setNewPaymentDay] = useState("25");
   const [makePrimary, setMakePrimary] = useState(false);
+  const trimmedNewName = newName.trim();
+  const duplicateAccount = Boolean(trimmedNewName) &&
+    state.accounts.some(
+      (a) => a.name.trim().toLowerCase() === trimmedNewName.toLowerCase()
+    );
+  const canAddAccount = Boolean(trimmedNewName) && !duplicateAccount;
 
   const chip = (active: boolean) =>
     `rounded-full px-3 py-1.5 text-[13px] font-medium ${
@@ -197,11 +203,16 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
   }
 
   function submitAccount() {
-    if (!newName.trim()) return;
+    const trimmedName = newName.trim();
+    if (!trimmedName) return;
+    const duplicate = state.accounts.some(
+      (a) => a.name.trim().toLowerCase() === trimmedName.toLowerCase()
+    );
+    if (duplicate) return;
     const rawBalance = num(newBalance);
     const normalizedBalance = Number.isNaN(rawBalance) ? 0 : rawBalance;
     const rawDay = Math.round(Math.abs(num(newPaymentDay)));
-    addAccount(newName, {
+    addAccount(trimmedName, {
       baseBalance:
         newKind === "credit_card"
           ? -Math.abs(normalizedBalance)
@@ -284,7 +295,13 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
           </div>
         ))}
         {/* Добавить счёт */}
-        <div className="space-y-3 border-t border-[var(--separator)] px-4 py-3">
+        <form
+          className="space-y-3 border-t border-[var(--separator)] px-4 py-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitAccount();
+          }}
+        >
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -304,48 +321,78 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
               Кредитка
             </button>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div>
+            <label className="mb-1 block text-[13px] font-medium text-label-2">
+              Название
+            </label>
             <input
               type="text"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && newName.trim()) {
-                  submitAccount();
-                }
-              }}
-              placeholder="Новый счёт"
-              className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-label-3"
+              placeholder={newKind === "credit_card" ? "Например, Альфа кредитка" : "Например, ВТБ"}
+              autoComplete="off"
+              enterKeyHint="done"
+              aria-invalid={duplicateAccount}
+              className={fieldCls}
             />
-            <input
-              type="number"
-              inputMode="decimal"
-              value={newBalance}
-              onChange={(e) => setNewBalance(e.target.value)}
-              onWheel={(e) => e.currentTarget.blur()}
-              placeholder={newKind === "credit_card" ? "Долг" : "Остаток"}
-              className={`${fieldCls} w-28 shrink-0 text-right`}
-            />
-            {newKind === "credit_card" && (
+          </div>
+          <div
+            className={`grid gap-2 ${
+              newKind === "credit_card" ? "grid-cols-2" : "grid-cols-1"
+            }`}
+          >
+            <div>
+              <label className="mb-1 block text-[13px] font-medium text-label-2">
+                {newKind === "credit_card" ? "Текущий долг, ₽" : "Остаток, ₽"}
+              </label>
               <input
                 type="number"
-                inputMode="numeric"
-                min="1"
-                max="31"
-                value={newPaymentDay}
-                onChange={(e) => setNewPaymentDay(e.target.value)}
+                inputMode="decimal"
+                value={newBalance}
+                onChange={(e) => setNewBalance(e.target.value)}
                 onWheel={(e) => e.currentTarget.blur()}
-                aria-label="День оплаты кредитной карты"
-                className={`${fieldCls} w-20 shrink-0 text-center`}
+                placeholder="0"
+                className={`${fieldCls} text-right`}
               />
+            </div>
+            {newKind === "credit_card" && (
+              <div>
+                <label className="mb-1 block text-[13px] font-medium text-label-2">
+                  День оплаты
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="1"
+                  max="31"
+                  value={newPaymentDay}
+                  onChange={(e) => setNewPaymentDay(e.target.value)}
+                  onWheel={(e) => e.currentTarget.blur()}
+                  aria-label="День оплаты кредитной карты"
+                  className={`${fieldCls} text-center`}
+                />
+              </div>
+            )}
+          </div>
+          {duplicateAccount && (
+            <p className="text-[13px] font-medium text-red-600 dark:text-red-400">
+              Такой счёт уже есть.
+            </p>
+          )}
+          <div className="flex items-center justify-between gap-3">
+            {!trimmedNewName && (
+              <span className="text-[13px] text-label-2">Название обязательно</span>
             )}
             <button
-              type="button"
-              disabled={!newName.trim()}
-              onClick={submitAccount}
-              className="shrink-0 rounded-full bg-brand px-3.5 py-1.5 text-[14px] font-semibold text-white disabled:opacity-40"
+              type="submit"
+              disabled={!canAddAccount}
+              className={`ml-auto shrink-0 rounded-full px-4 py-2 text-[14px] font-semibold transition ${
+                canAddAccount
+                  ? "bg-brand text-white shadow-sm active:scale-[0.99]"
+                  : "cursor-not-allowed bg-black/[0.06] text-label-3 dark:bg-white/10"
+              }`}
             >
-              Добавить
+              Добавить счёт
             </button>
           </div>
           {newKind === "regular" && (
@@ -359,7 +406,7 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
               Сделать основным
             </label>
           )}
-        </div>
+        </form>
       </Card>
       {liveTransfers.length > 0 && (
         <Card className="mt-2 !p-0">
