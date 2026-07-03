@@ -18,6 +18,8 @@ export interface Account {
   kind?: AccountKind;
   // День напоминания об оплате кредитной карты (1..31, для коротких месяцев обрезается).
   creditPaymentDay?: number;
+  // Кредитный лимит карты. Не считается деньгами на руках.
+  creditLimit?: number;
 }
 
 // Операция

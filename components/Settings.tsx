@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useStore, currentBalance } from "@/lib/store";
+import {
+  useStore,
+  currentBalance,
+  creditCardDebt,
+  creditCardAvailable,
+} from "@/lib/store";
 import { Theme, getTheme, setTheme, DEFAULT_THEME } from "@/lib/theme";
 import {
   operationsToCSV,
@@ -19,7 +24,7 @@ const EXPENSE_CATEGORIES = TYPES.filter(
 ).flatMap((t) => t.categories.map((c) => c.name));
 
 export function Settings() {
-  const { state, updateGoal, setPrimaryAccount, resetAll } = useStore();
+  const { state, setPrimaryAccount, resetAll } = useStore();
   const primaryId =
     state.primaryAccountId ?? state.accounts[0]?.id ?? "";
 
@@ -57,46 +62,6 @@ export function Settings() {
       </div>
 
       <AccountsCard fieldCls={fieldCls} />
-
-      {/* Цель */}
-      <div>
-        <SettingsTitle>Цель накоплений</SettingsTitle>
-        <Card>
-        <div className="space-y-3">
-          <div>
-            <label className="mb-1 block text-sm text-slate-600 dark:text-slate-300">Название</label>
-            <input
-              type="text"
-              value={state.goal.name}
-              onChange={(e) => updateGoal({ name: e.target.value })}
-              className={fieldCls}
-            />
-          </div>
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="mb-1 block text-sm text-slate-600 dark:text-slate-300">
-                Цель, ₽
-              </label>
-              <NumberInput
-                value={state.goal.target}
-                onCommit={(n) => updateGoal({ target: n })}
-                className={fieldCls}
-              />
-            </div>
-            <div className="flex-1">
-              <label className="mb-1 block text-sm text-slate-600 dark:text-slate-300">
-                Накоплено, ₽
-              </label>
-              <NumberInput
-                value={state.goal.saved}
-                onCommit={(n) => updateGoal({ saved: n })}
-                className={fieldCls}
-              />
-            </div>
-          </div>
-        </div>
-        </Card>
-      </div>
 
       <BudgetsCard fieldCls={fieldCls} />
 
@@ -183,6 +148,7 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
   const [newBalance, setNewBalance] = useState("");
   const [newKind, setNewKind] = useState<"regular" | "credit_card">("regular");
   const [newPaymentDay, setNewPaymentDay] = useState("25");
+  const [newCreditLimit, setNewCreditLimit] = useState("");
   const [makePrimary, setMakePrimary] = useState(false);
   const trimmedNewName = newName.trim();
   const duplicateAccount = Boolean(trimmedNewName) &&
@@ -212,6 +178,8 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
     const rawBalance = num(newBalance);
     const normalizedBalance = Number.isNaN(rawBalance) ? 0 : rawBalance;
     const rawDay = Math.round(Math.abs(num(newPaymentDay)));
+    const rawLimit = num(newCreditLimit);
+    const creditLimit = Number.isNaN(rawLimit) ? 0 : Math.max(0, rawLimit);
     addAccount(trimmedName, {
       baseBalance:
         newKind === "credit_card"
@@ -219,12 +187,14 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
           : normalizedBalance,
       kind: newKind,
       creditPaymentDay: rawDay || 1,
+      creditLimit,
       makePrimary: makePrimary && newKind === "regular",
     });
     setNewName("");
     setNewBalance("");
     setNewKind("regular");
     setNewPaymentDay("25");
+    setNewCreditLimit("");
     setMakePrimary(false);
   }
 
@@ -254,11 +224,25 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
                 aria-label="Название счёта"
                 className="min-w-0 flex-1 bg-transparent text-[15px] outline-none focus:ring-0"
               />
-              <NumberInput
-                value={Math.round(currentBalance(state, a.id))}
-                onCommit={(n) => setAccountBalance(a.id, n)}
-                className={`${fieldCls} w-28 shrink-0 text-right`}
-              />
+              <div className="shrink-0 text-right">
+                <div className="mb-1 text-[11px] uppercase text-label-3">
+                  {a.kind === "credit_card" ? "Долг" : "Остаток"}
+                </div>
+                <NumberInput
+                  value={
+                    a.kind === "credit_card"
+                      ? Math.round(creditCardDebt(state, a.id))
+                      : Math.round(currentBalance(state, a.id))
+                  }
+                  onCommit={(n) =>
+                    setAccountBalance(
+                      a.id,
+                      a.kind === "credit_card" ? -Math.abs(n) : n
+                    )
+                  }
+                  className={`${fieldCls} w-28 shrink-0 text-right`}
+                />
+              </div>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
@@ -267,6 +251,7 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
                   updateAccount(a.id, {
                     kind: a.kind === "credit_card" ? "regular" : "credit_card",
                     creditPaymentDay: a.creditPaymentDay ?? 25,
+                    creditLimit: a.creditLimit ?? 0,
                   })
                 }
                 className={chip(a.kind === "credit_card")}
@@ -275,6 +260,14 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
               </button>
               {a.kind === "credit_card" && (
                 <>
+                  <span className="text-[13px] text-label-2">лимит</span>
+                  <NumberInput
+                    value={Math.round(a.creditLimit ?? 0)}
+                    onCommit={(n) =>
+                      updateAccount(a.id, { creditLimit: Math.max(0, n) })
+                    }
+                    className={`${fieldCls} w-24 px-2 py-1.5 text-right text-[13px]`}
+                  />
                   <span className="text-[13px] text-label-2">оплата</span>
                   <NumberInput
                     value={a.creditPaymentDay ?? 25}
@@ -289,6 +282,17 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
                     className={`${fieldCls} w-16 px-2 py-1.5 text-center text-[13px]`}
                   />
                   <span className="text-[13px] text-label-2">числа</span>
+                  {(a.creditLimit ?? 0) > 0 && (
+                    <span
+                      className={`text-[13px] ${
+                        creditCardAvailable(state, a.id) >= 0
+                          ? "text-label-2"
+                          : "text-red-600 dark:text-red-400"
+                      }`}
+                    >
+                      доступно {formatMoney(creditCardAvailable(state, a.id))}
+                    </span>
+                  )}
                 </>
               )}
             </div>
@@ -356,22 +360,39 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
               />
             </div>
             {newKind === "credit_card" && (
-              <div>
-                <label className="mb-1 block text-[13px] font-medium text-label-2">
-                  День оплаты
-                </label>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="1"
-                  max="31"
-                  value={newPaymentDay}
-                  onChange={(e) => setNewPaymentDay(e.target.value)}
-                  onWheel={(e) => e.currentTarget.blur()}
-                  aria-label="День оплаты кредитной карты"
-                  className={`${fieldCls} text-center`}
-                />
-              </div>
+              <>
+                <div>
+                  <label className="mb-1 block text-[13px] font-medium text-label-2">
+                    Лимит, ₽
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    value={newCreditLimit}
+                    onChange={(e) => setNewCreditLimit(e.target.value)}
+                    onWheel={(e) => e.currentTarget.blur()}
+                    placeholder="0"
+                    className={`${fieldCls} text-right`}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[13px] font-medium text-label-2">
+                    День оплаты
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max="31"
+                    value={newPaymentDay}
+                    onChange={(e) => setNewPaymentDay(e.target.value)}
+                    onWheel={(e) => e.currentTarget.blur()}
+                    aria-label="День оплаты кредитной карты"
+                    className={`${fieldCls} text-center`}
+                  />
+                </div>
+              </>
             )}
           </div>
           {duplicateAccount && (

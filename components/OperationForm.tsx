@@ -3,8 +3,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { Operation, OpType } from "@/lib/types";
 import { TYPES, getTypeDef } from "@/lib/categories";
-import { useStore } from "@/lib/store";
-import { todayISO } from "@/lib/format";
+import { useStore, creditCardDebt, creditCardAvailable } from "@/lib/store";
+import { todayISO, formatMoney } from "@/lib/format";
 import { getLastUsed, setLastUsed } from "@/lib/lastUsed";
 import { accountColor } from "@/lib/accounts";
 
@@ -241,6 +241,22 @@ export function OperationForm({
     "block text-[13px] font-medium uppercase tracking-wide text-label-2 mb-2";
   const fieldCls =
     "w-full rounded-xl bg-black/[0.04] px-3.5 py-3 outline-none focus:ring-2 focus:ring-brand/40 dark:bg-white/[0.06] dark:text-slate-100";
+  const draftAmount =
+    Math.abs(Number(draft.amount.replace(/\s/g, "").replace(",", "."))) || 0;
+  const fromAccount = state.accounts.find((a) => a.id === draft.accountId);
+  const toAccount = state.accounts.find((a) => a.id === draft.toAccountId);
+  const fromCreditCard = fromAccount?.kind === "credit_card";
+  const toCreditCard = toAccount?.kind === "credit_card";
+  const fromCardDebt = fromCreditCard
+    ? creditCardDebt(state, draft.accountId)
+    : 0;
+  const toCardDebt = toCreditCard ? creditCardDebt(state, draft.toAccountId) : 0;
+  const fromCardAvailable = fromCreditCard
+    ? creditCardAvailable(state, draft.accountId)
+    : 0;
+  const toCardAvailable = toCreditCard
+    ? creditCardAvailable(state, draft.toAccountId)
+    : 0;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
@@ -388,6 +404,37 @@ export function OperationForm({
               ))}
           </div>
         </div>
+      )}
+
+      {fromCreditCard &&
+        draft.type !== "income" &&
+        draft.type !== "transfer" && (
+          <p className="rounded-xl bg-amber-50 px-3.5 py-2.5 text-[13px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+            Долг по карте станет {formatMoney(fromCardDebt + draftAmount)}
+            {(fromAccount.creditLimit ?? 0) > 0
+              ? ` · доступно ${formatMoney(fromCardAvailable - draftAmount)}`
+              : ""}
+          </p>
+        )}
+
+      {draft.type === "transfer" && fromCreditCard && (
+        <p className="rounded-xl bg-amber-50 px-3.5 py-2.5 text-[13px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          Перевод с кредитки увеличит долг до{" "}
+          {formatMoney(fromCardDebt + draftAmount)}
+          {(fromAccount.creditLimit ?? 0) > 0
+            ? ` · доступно ${formatMoney(fromCardAvailable - draftAmount)}`
+            : ""}
+        </p>
+      )}
+
+      {draft.type === "transfer" && toCreditCard && (
+        <p className="rounded-xl bg-emerald-50 px-3.5 py-2.5 text-[13px] text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">
+          Оплата карты уменьшит долг до{" "}
+          {formatMoney(Math.max(0, toCardDebt - draftAmount))}
+          {(toAccount.creditLimit ?? 0) > 0
+            ? ` · доступно ${formatMoney(toCardAvailable + draftAmount)}`
+            : ""}
+        </p>
       )}
 
       <div>

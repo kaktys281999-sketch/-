@@ -139,6 +139,16 @@ export function creditCardDebt(state: AppState, accountId: string): number {
   return Math.max(0, -currentBalance(state, accountId));
 }
 
+export function creditCardLimit(account: Account): number {
+  return account.kind === "credit_card" ? Math.max(0, account.creditLimit ?? 0) : 0;
+}
+
+export function creditCardAvailable(state: AppState, accountId: string): number {
+  const acc = state.accounts.find((a) => a.id === accountId);
+  if (!acc || acc.kind !== "credit_card") return 0;
+  return creditCardLimit(acc) - creditCardDebt(state, accountId);
+}
+
 // Предстоящие в текущем месяце списания: будущие регулярные операции этого
 // месяца (ещё не созданные) и платёж по кредиту, если его срок в этом месяце.
 export interface Upcoming {

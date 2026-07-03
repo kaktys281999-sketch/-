@@ -114,15 +114,16 @@ interface StoreContextValue {
   deleteOperation: (id: string) => void;
   restoreOperation: (id: string) => void;
   setAccountBalance: (id: string, currentBalance: number) => void;
-  addAccount: (
-    name: string,
-    opts?: {
-      baseBalance?: number;
-      kind?: AccountKind;
-      creditPaymentDay?: number;
-      makePrimary?: boolean;
-    }
-  ) => void;
+	  addAccount: (
+	    name: string,
+	    opts?: {
+	      baseBalance?: number;
+	      kind?: AccountKind;
+	      creditPaymentDay?: number;
+	      creditLimit?: number;
+	      makePrimary?: boolean;
+	    }
+	  ) => void;
   updateAccount: (id: string, patch: Partial<Omit<Account, "id">>) => void;
   renameAccount: (id: string, name: string) => void;
   addTransfer: (t: Omit<Transfer, "id" | "updatedAt">) => void;
@@ -551,28 +552,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // текущий долг 5000 ₽ хранится как -5000 ₽.
     const addAccount = (
       name: string,
-      opts?: {
-        baseBalance?: number;
-        kind?: AccountKind;
-        creditPaymentDay?: number;
-        makePrimary?: boolean;
-      }
+	      opts?: {
+	        baseBalance?: number;
+	        kind?: AccountKind;
+	        creditPaymentDay?: number;
+	        creditLimit?: number;
+	        makePrimary?: boolean;
+	      }
     ) => {
       const trimmed = name.trim();
       if (!trimmed) return;
       setState((s) => {
         const kind = opts?.kind === "credit_card" ? "credit_card" : undefined;
-        const id = uid();
-        const account: Account = {
-          id,
-          name: trimmed,
-          baseBalance: opts?.baseBalance ?? 0,
-          kind,
-          creditPaymentDay:
-            kind === "credit_card"
-              ? clampPaymentDay(opts?.creditPaymentDay)
-              : undefined,
-        };
+	        const id = uid();
+	        const account: Account = {
+	          id,
+	          name: trimmed,
+	          baseBalance: opts?.baseBalance ?? 0,
+	          kind,
+	          creditPaymentDay:
+	            kind === "credit_card"
+	              ? clampPaymentDay(opts?.creditPaymentDay)
+	              : undefined,
+	          creditLimit:
+	            kind === "credit_card"
+	              ? Math.max(0, opts?.creditLimit ?? 0)
+	              : undefined,
+	        };
         return {
           ...s,
           ...touch({
@@ -593,12 +599,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             if (patch.name !== undefined) {
               next.name = patch.name.trim() || a.name;
             }
-            if (next.kind === "credit_card") {
-              next.creditPaymentDay = clampPaymentDay(next.creditPaymentDay);
-            } else {
-              next.kind = undefined;
-              next.creditPaymentDay = undefined;
-            }
+	            if (next.kind === "credit_card") {
+	              next.creditPaymentDay = clampPaymentDay(next.creditPaymentDay);
+	              next.creditLimit = Math.max(0, next.creditLimit ?? 0);
+	            } else {
+	              next.kind = undefined;
+	              next.creditPaymentDay = undefined;
+	              next.creditLimit = undefined;
+	            }
             return next;
           }),
         }),

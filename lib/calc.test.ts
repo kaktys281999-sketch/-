@@ -29,6 +29,8 @@ import {
   categoryNotesBreakdown,
   creditCardDebt,
   creditCardDueDate,
+  creditCardLimit,
+  creditCardAvailable,
 } from "./calc";
 import { mergeStates } from "./sync";
 import { AppState, Operation, Debt, Credit, RecurringRule, Transfer } from "./types";
@@ -337,7 +339,7 @@ eq(accountMonthFlow(sf, "tinkoff", "2026-06"), { income: 0, expense: 0, net: 0 }
 const sCard = state({
   accounts: [
     { id: "sber", name: "Сбер", baseBalance: 10000 },
-    { id: "card", name: "Кредитка", baseBalance: 0, kind: "credit_card", creditPaymentDay: 31 },
+    { id: "card", name: "Кредитка", baseBalance: 0, kind: "credit_card", creditPaymentDay: 31, creditLimit: 10000 },
   ],
   operations: [
     op({ accountId: "card", amount: 2500, date: "2026-06-05" }),
@@ -348,7 +350,17 @@ const sCard = state({
 });
 eq(currentBalance(sCard, "card"), -1500, "кредитка: трата увеличила долг, перевод уменьшил");
 eq(creditCardDebt(sCard, "card"), 1500, "долг по кредитке = отрицательный баланс по модулю");
+eq(creditCardLimit(sCard.accounts[1]), 10000, "кредитка: лимит хранится отдельно");
+eq(creditCardAvailable(sCard, "card"), 8500, "кредитка: доступно = лимит − долг");
+eq(totalOnHand(sCard), 7500, "кредитка: лимит не считается деньгами на руках");
 eq(creditCardDueDate(sCard.accounts[1], "2026-02"), "2026-02-28", "день оплаты кредитки обрезается под месяц");
+
+const sCardOverLimit = state({
+  accounts: [
+    { id: "card", name: "Кредитка", baseBalance: -12000, kind: "credit_card", creditLimit: 10000 },
+  ],
+});
+eq(creditCardAvailable(sCardOverLimit, "card"), -2000, "кредитка: доступный лимит может уйти ниже нуля");
 
 // ---- accountTrend ----
 const st6 = state({

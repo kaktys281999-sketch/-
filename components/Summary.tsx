@@ -21,6 +21,7 @@ import {
   notesBreakdown,
   creditCardDebt,
   creditCardDueDate,
+  creditCardAvailable,
 } from "@/lib/store";
 import {
   formatMoney,
@@ -33,7 +34,7 @@ import {
   relativeDayLabel,
   todayISO,
 } from "@/lib/format";
-import { Card, Money, ProgressBar, Sparkline } from "./ui";
+import { Card, Money, Sparkline } from "./ui";
 import { SpendingBreakdown } from "./SpendingBreakdown";
 import { MonthlyTrend } from "./MonthlyTrend";
 import { accountColor } from "@/lib/accounts";
@@ -207,10 +208,6 @@ export function Summary({
   const accountFlows = state.accounts
     .map((a) => ({ a, f: accountMonthFlow(state, a.id, month) }))
     .filter((x) => x.f.income > 0 || x.f.expense > 0);
-  const goal = state.goal;
-  const goalRemaining = goal.target - goal.saved;
-  const goalPercent = goal.target > 0 ? (goal.saved / goal.target) * 100 : 0;
-
   // Расширенная статистика месяца
   const savingsRate =
     summary.income > 0 ? Math.round((summary.diff / summary.income) * 100) : 0;
@@ -334,21 +331,35 @@ export function Summary({
           <span className="text-[15px] font-medium">На руках</span>
           <span className="text-[17px] font-semibold">{formatMoney(onHand)}</span>
         </div>
-        {state.accounts.map((a) => (
-          <div
-            key={a.id}
-            className="flex items-center justify-between border-t border-[var(--separator)] px-4 py-3 text-[15px]"
-          >
-            <span className="flex items-center gap-2.5 text-label-2">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: accountColor(a.id) }}
-              />
-              {a.name}
-            </span>
-            <Money value={currentBalance(state, a.id)} />
-          </div>
-        ))}
+        {state.accounts.map((a) => {
+          const isCard = a.kind === "credit_card";
+          const debt = creditCardDebt(state, a.id);
+          const limit = Math.max(0, a.creditLimit ?? 0);
+          const available = creditCardAvailable(state, a.id);
+          return (
+            <div
+              key={a.id}
+              className="flex items-center justify-between gap-3 border-t border-[var(--separator)] px-4 py-3 text-[15px]"
+            >
+              <span className="flex min-w-0 items-center gap-2.5 text-label-2">
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: accountColor(a.id) }}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate">{a.name}</span>
+                  {isCard && (
+                    <span className="block truncate text-[12px] text-label-3">
+                      долг {formatMoney(debt)}
+                      {limit > 0 ? ` · доступно ${formatMoney(available)}` : ""}
+                    </span>
+                  )}
+                </span>
+              </span>
+              <Money value={currentBalance(state, a.id)} className="shrink-0" />
+            </div>
+          );
+        })}
       </Card>
 
       {/* Долги */}
@@ -589,30 +600,6 @@ export function Summary({
             По заметкам к операциям. Нажми, чтобы увидеть все траты места.
           </p>
         </div>
-      )}
-
-      {/* Цель (скрыта, пока цель не задана) */}
-      {goal.target > 0 && (
-      <div>
-        <SectionTitle>Цель · {goal.name}</SectionTitle>
-        <Card>
-          <div className="flex items-center justify-between">
-            <span className="text-[15px] font-medium">
-              {formatMoney(goal.saved)}{" "}
-              <span className="text-label-2">из {formatMoney(goal.target)}</span>
-            </span>
-            <span className="text-[15px] font-semibold text-brand">
-              {Math.round(goalPercent)}%
-            </span>
-          </div>
-          <div className="mt-2.5">
-            <ProgressBar percent={goalPercent} />
-          </div>
-          <div className="mt-2 text-[13px] text-label-2">
-            Осталось накопить {formatMoney(goalRemaining)}
-          </div>
-        </Card>
-      </div>
       )}
 
       {/* Кредиты */}
