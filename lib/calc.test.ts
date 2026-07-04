@@ -30,6 +30,7 @@ import {
   categoryNotesBreakdown,
   creditCardDebt,
   creditCardDueDate,
+  nextCreditCardDueDate,
   creditCardLimit,
   creditCardAvailable,
   creditCardDebtTotal,
@@ -372,6 +373,22 @@ eq(creditCardDebtTotal(sCard), 1500, "кредитка: общий долг по
 eq(totalOnHand(sCard), 9000, "кредитка: на руках считаются только обычные счета");
 eq(realPosition(sCard), 7500, "кредитка: реальная позиция учитывает долг по карте");
 eq(creditCardDueDate(sCard.accounts[1], "2026-02"), "2026-02-28", "день оплаты кредитки обрезается под месяц");
+eq(
+  nextCreditCardDueDate(
+    { ...sCard.accounts[1], creditPaymentDay: 2 },
+    "2026-07-04"
+  ),
+  "2026-08-02",
+  "кредитка: прошедшее число оплаты переносится на следующий месяц"
+);
+eq(
+  nextCreditCardDueDate(
+    { ...sCard.accounts[1], creditPaymentDay: 2 },
+    "2026-08-02"
+  ),
+  "2026-08-02",
+  "кредитка: в день оплаты напоминание остаётся на сегодня"
+);
 
 const sCardOverLimit = state({
   accounts: [

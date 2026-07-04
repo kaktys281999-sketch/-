@@ -20,7 +20,7 @@ import {
   expensePace,
   notesBreakdown,
   creditCardDebt,
-  creditCardDueDate,
+  nextCreditCardDueDate,
   creditCardAvailable,
 } from "@/lib/store";
 import {
@@ -48,6 +48,8 @@ type Reminder = {
   iso: string;
   title: string;
   amount: number;
+  amountLabel?: string;
+  manualAmount?: boolean;
   kind: ReminderKind;
   targetId: string;
   defaultAccountId: string;
@@ -158,7 +160,7 @@ export function Summary({
     if (a.kind !== "credit_card") continue;
     const amount = creditCardDebt(state, a.id);
     if (amount <= 0) continue;
-    const date = creditCardDueDate(a, realMonth);
+    const date = nextCreditCardDueDate(a, today);
     if (!date) continue;
     const days = daysUntil(date);
     if (days > 7) continue;
@@ -168,6 +170,8 @@ export function Summary({
       iso: date,
       title: `Оплата кредитки «${a.name}»`,
       amount,
+      amountLabel: `долг ${formatMoney(amount)}`,
+      manualAmount: true,
       kind: "credit_card",
       targetId: a.id,
       defaultAccountId: defaultPayAccount(a.id),
@@ -313,7 +317,8 @@ export function Summary({
                         : "text-amber-700 dark:text-amber-300"
                     }`}
                   >
-                    {relativeDayLabel(r.iso)} · {formatMoney(r.amount)}
+                    {relativeDayLabel(r.iso)} ·{" "}
+                    {r.amountLabel ?? formatMoney(r.amount)}
                   </div>
                 </button>
                 <button
@@ -721,8 +726,18 @@ function ReminderPaymentPanel({
   )
     ? reminder.defaultAccountId
     : accountOptions[0]?.id ?? "";
+  const manualAmount = reminder.manualAmount || cardPayment;
+  const subtitleAmount = cardPayment
+    ? `долг ${formatMoney(reminder.amount)}`
+    : reminder.kind === "debt"
+      ? `остаток ${formatMoney(reminder.amount)}`
+      : reminder.kind === "credit"
+        ? `платёж ${formatMoney(reminder.amount)}`
+        : `обычно ${formatMoney(reminder.amount)}`;
 
-  const [amountText, setAmountText] = useState(String(Math.round(reminder.amount)));
+  const [amountText, setAmountText] = useState(
+    manualAmount ? "" : String(Math.round(reminder.amount))
+  );
   const [accountId, setAccountId] = useState(initialAccount);
   const [date, setDate] = useState(todayISO());
   const [error, setError] = useState("");
@@ -758,7 +773,7 @@ function ReminderPaymentPanel({
               {reminder.title}
             </div>
             <div className="text-[13px] text-label-2">
-              {relativeDayLabel(reminder.iso)} · обычно {formatMoney(reminder.amount)}
+              {relativeDayLabel(reminder.iso)} · {subtitleAmount}
             </div>
           </div>
           <button
@@ -777,6 +792,7 @@ function ReminderPaymentPanel({
             inputMode="decimal"
             min="0"
             value={amountText}
+            placeholder={cardPayment ? "Сумма платежа" : "Сумма"}
             onChange={(e) => {
               if (error) setError("");
               setAmountText(e.target.value);
@@ -798,7 +814,11 @@ function ReminderPaymentPanel({
             onClick={() => setAmountText(String(Math.round(reminder.amount)))}
             className={chip(false)}
           >
-            {reminder.kind === "subscription" ? "Типовая" : "Вся сумма"}
+            {cardPayment
+              ? "Весь долг"
+              : reminder.kind === "subscription"
+                ? "Типовая"
+                : "Вся сумма"}
           </button>
           {reminder.amount > 1 && (
             <button
@@ -806,7 +826,7 @@ function ReminderPaymentPanel({
               onClick={() => setAmountText(String(Math.round(reminder.amount / 2)))}
               className={chip(false)}
             >
-              Половина
+              {cardPayment ? "Половина долга" : "Половина"}
             </button>
           )}
         </div>

@@ -134,6 +134,17 @@ export function creditCardDueDate(account: Account, month: string): string | nul
   return `${month}-${pad2(day)}`;
 }
 
+export function nextCreditCardDueDate(
+  account: Account,
+  today: string
+): string | null {
+  const month = monthKeyFromISO(today);
+  const thisMonthDate = creditCardDueDate(account, month);
+  if (!thisMonthDate) return null;
+  if (thisMonthDate >= today) return thisMonthDate;
+  return creditCardDueDate(account, shiftMonth(month, 1));
+}
+
 export function creditCardDebt(state: AppState, accountId: string): number {
   const acc = state.accounts.find((a) => a.id === accountId);
   if (!acc || acc.kind !== "credit_card") return 0;
