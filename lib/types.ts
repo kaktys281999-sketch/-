@@ -20,6 +20,8 @@ export interface Account {
   creditPaymentDay?: number;
   // Кредитный лимит карты. Не считается деньгами на руках.
   creditLimit?: number;
+  // Метаданные для слияния счетов при синхронизации.
+  updatedAt?: number;
 }
 
 // Операция
@@ -182,6 +184,8 @@ export interface AppState {
   recurring?: RecurringRule[];
   // долги (мне должны / я должен)
   debts?: Debt[];
+  // tombstone удалённых счетов: id -> время удаления.
+  deletedAccountIds?: Record<string, number>;
   // момент последнего изменения (мс) — для разрешения конфликтов синхронизации
   updatedAt: number;
 }

@@ -142,6 +142,7 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
     addAccount,
     updateAccount,
     renameAccount,
+    deleteAccount,
     deleteTransfer,
   } = useStore();
   const [newName, setNewName] = useState("");
@@ -204,6 +205,28 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
     .slice(0, 8);
   const accountName = (id: string) =>
     state.accounts.find((a) => a.id === id)?.name ?? "—";
+  const replacementAccount = (id: string) =>
+    state.accounts.find(
+      (a) => a.id !== id && a.id === state.primaryAccountId
+    ) ??
+    state.accounts.find((a) => a.id !== id && a.kind !== "credit_card") ??
+    state.accounts.find((a) => a.id !== id);
+  const handleDeleteAccount = (id: string) => {
+    const account = state.accounts.find((a) => a.id === id);
+    const replacement = replacementAccount(id);
+    if (!account || !replacement) return;
+    const cardNote =
+      account.kind === "credit_card"
+        ? " Долг и лимит этой кредитки перестанут быть отдельной строкой."
+        : "";
+    if (
+      confirm(
+        `Удалить счёт «${account.name}»? Баланс и связанные операции будут перенесены на «${replacement.name}».${cardNote}`
+      )
+    ) {
+      deleteAccount(id);
+    }
+  };
 
   return (
     <div>
@@ -295,6 +318,18 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
                   )}
                 </>
               )}
+              <button
+                type="button"
+                disabled={!replacementAccount(a.id)}
+                onClick={() => handleDeleteAccount(a.id)}
+                className={`rounded-full px-3 py-1.5 text-[13px] font-medium ${
+                  replacementAccount(a.id)
+                    ? "bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-300"
+                    : "cursor-not-allowed bg-black/[0.04] text-label-3 dark:bg-white/10"
+                }`}
+              >
+                Удалить
+              </button>
             </div>
           </div>
         ))}

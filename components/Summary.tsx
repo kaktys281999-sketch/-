@@ -373,11 +373,19 @@ export function Summary({
                   <span className="block truncate">{a.name}</span>
                   <span className="block truncate text-[12px] text-label-3">
                     долг {formatMoney(debt)}
-                    {limit > 0 ? ` · доступно ${formatMoney(available)}` : ""}
+                    {limit > 0 ? ` · лимит ${formatMoney(limit)}` : ""}
                   </span>
                 </span>
               </span>
-              <Money value={currentBalance(state, a.id)} className="shrink-0" />
+              <span className="shrink-0 text-right">
+                <span className="block text-[11px] uppercase text-label-3">
+                  {limit > 0 ? "Остаток" : "Баланс"}
+                </span>
+                <Money
+                  value={limit > 0 ? available : currentBalance(state, a.id)}
+                  className="block"
+                />
+              </span>
             </div>
           );
         })}

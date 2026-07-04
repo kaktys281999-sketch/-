@@ -114,18 +114,19 @@ interface StoreContextValue {
   deleteOperation: (id: string) => void;
   restoreOperation: (id: string) => void;
   setAccountBalance: (id: string, currentBalance: number) => void;
-	  addAccount: (
-	    name: string,
-	    opts?: {
-	      baseBalance?: number;
-	      kind?: AccountKind;
-	      creditPaymentDay?: number;
-	      creditLimit?: number;
-	      makePrimary?: boolean;
-	    }
-	  ) => void;
+  addAccount: (
+    name: string,
+    opts?: {
+      baseBalance?: number;
+      kind?: AccountKind;
+      creditPaymentDay?: number;
+      creditLimit?: number;
+      makePrimary?: boolean;
+    }
+  ) => void;
   updateAccount: (id: string, patch: Partial<Omit<Account, "id">>) => void;
   renameAccount: (id: string, name: string) => void;
+  deleteAccount: (id: string) => void;
   addTransfer: (t: Omit<Transfer, "id" | "updatedAt">) => void;
   deleteTransfer: (id: string) => void;
   updateGoal: (goal: Partial<Goal>) => void;
@@ -171,13 +172,21 @@ const StoreContext = createContext<StoreContextValue | null>(null);
 
 // Гарантируем наличие счёта «Наличные» (миграция старых данных без него).
 // Не дублируем, если он уже есть по id или по названию.
-function ensureCashAccount(accounts: Account[]): Account[] {
+function ensureCashAccount(
+  accounts: Account[],
+  deletedAccountIds: Record<string, number> = {}
+): Account[] {
   const has = accounts.some(
-    (a) => a.id === "cash" || a.name.trim().toLowerCase() === "наличные"
+    (a) =>
+      !deletedAccountIds[a.id] &&
+      (a.id === "cash" || a.name.trim().toLowerCase() === "наличные")
   );
-  return has
-    ? accounts
-    : [...accounts, { id: "cash", name: "Наличные", baseBalance: 0 }];
+  const hasAnyAccount = accounts.some((a) => !deletedAccountIds[a.id]);
+  if (!hasAnyAccount) {
+    return [{ id: "cash", name: "Наличные", baseBalance: 0 }];
+  }
+  if (has || deletedAccountIds.cash) return accounts;
+  return [...accounts, { id: "cash", name: "Наличные", baseBalance: 0 }];
 }
 
 function loadState(): AppState {
@@ -208,14 +217,22 @@ function loadState(): AppState {
       );
       busDefaultApplied = true;
     }
+    const deletedAccountIds = parsed.deletedAccountIds ?? {};
+    const accounts = ensureCashAccount(
+      parsed.accounts ?? INITIAL_STATE.accounts,
+      deletedAccountIds
+    );
+    const primaryAccountId = accounts.some((a) => a.id === parsed.primaryAccountId)
+      ? parsed.primaryAccountId
+      : accounts[0]?.id ?? INITIAL_STATE.primaryAccountId;
     // Мягкое слияние, чтобы новые поля не ломали старые данные
     return {
-      accounts: ensureCashAccount(parsed.accounts ?? INITIAL_STATE.accounts),
+      accounts,
       operations: parsed.operations ?? INITIAL_STATE.operations,
       transfers: parsed.transfers ?? [],
       credits: migrateCredits(parsed),
       goal: { ...INITIAL_STATE.goal, ...parsed.goal },
-      primaryAccountId: parsed.primaryAccountId ?? INITIAL_STATE.primaryAccountId,
+      primaryAccountId,
       budgets: parsed.budgets ?? {},
       budgetRollover: parsed.budgetRollover ?? false,
       templates,
@@ -223,6 +240,7 @@ function loadState(): AppState {
       busDefaultApplied,
       recurring: parsed.recurring ?? [],
       debts: parsed.debts ?? [],
+      deletedAccountIds,
       updatedAt: parsed.updatedAt ?? 0,
     };
   } catch {
@@ -295,7 +313,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       (next.transfers ?? []).length > 0 ||
       (next.debts ?? []).length > 0 ||
       (next.credits ?? []).length > 0 ||
-      (next.recurring ?? []).length > 0;
+      (next.recurring ?? []).length > 0 ||
+      Object.keys(next.deletedAccountIds ?? {}).length > 0;
 
     if (!hasLocalRecords) {
       // локально вообще нет операций — проверим, есть ли что-то в таблице
@@ -306,7 +325,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             (remote.transfers ?? []).filter((t) => !t.deleted).length +
             (remote.debts ?? []).filter((d) => !d.deleted).length +
             (remote.credits ?? []).filter((c) => !c.deleted).length +
-            (remote.recurring ?? []).filter((r) => !r.deleted).length
+            (remote.recurring ?? []).filter((r) => !r.deleted).length +
+            Object.keys(remote.deletedAccountIds ?? {}).length
           : 0;
         if (remoteLive > 0) {
           // в таблице есть данные, а у нас пусто — НЕ затираем
@@ -521,6 +541,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // Подбираем base так, чтобы текущий стал равен введённому значению.
     const setAccountBalance = (id: string, currentBalance: number) => {
       setState((s) => {
+        const now = Date.now();
         const opDelta = s.operations
           .filter((o) => !o.deleted)
           .reduce((sum, o) => sum + operationAccountDelta(o, id), 0);
@@ -538,7 +559,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ...s,
           ...touch({
             accounts: s.accounts.map((a) =>
-              a.id === id ? { ...a, baseBalance: currentBalance - deltaSum } : a
+              a.id === id
+                ? { ...a, baseBalance: currentBalance - deltaSum, updatedAt: now }
+                : a
             ),
           }),
         };
@@ -552,33 +575,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // текущий долг 5000 ₽ хранится как -5000 ₽.
     const addAccount = (
       name: string,
-	      opts?: {
-	        baseBalance?: number;
-	        kind?: AccountKind;
-	        creditPaymentDay?: number;
-	        creditLimit?: number;
-	        makePrimary?: boolean;
-	      }
+      opts?: {
+        baseBalance?: number;
+        kind?: AccountKind;
+        creditPaymentDay?: number;
+        creditLimit?: number;
+        makePrimary?: boolean;
+      }
     ) => {
       const trimmed = name.trim();
       if (!trimmed) return;
       setState((s) => {
+        const now = Date.now();
         const kind = opts?.kind === "credit_card" ? "credit_card" : undefined;
-	        const id = uid();
-	        const account: Account = {
-	          id,
-	          name: trimmed,
-	          baseBalance: opts?.baseBalance ?? 0,
-	          kind,
-	          creditPaymentDay:
-	            kind === "credit_card"
-	              ? clampPaymentDay(opts?.creditPaymentDay)
-	              : undefined,
-	          creditLimit:
-	            kind === "credit_card"
-	              ? Math.max(0, opts?.creditLimit ?? 0)
-	              : undefined,
-	        };
+        const id = uid();
+        const account: Account = {
+          id,
+          name: trimmed,
+          baseBalance: opts?.baseBalance ?? 0,
+          kind,
+          creditPaymentDay:
+            kind === "credit_card"
+              ? clampPaymentDay(opts?.creditPaymentDay)
+              : undefined,
+          creditLimit:
+            kind === "credit_card" ? Math.max(0, opts?.creditLimit ?? 0) : undefined,
+          updatedAt: now,
+        };
         return {
           ...s,
           ...touch({
@@ -590,23 +613,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
 
     const updateAccount = (id: string, patch: Partial<Omit<Account, "id">>) => {
+      const now = Date.now();
       setState((s) => ({
         ...s,
         ...touch({
           accounts: s.accounts.map((a) => {
             if (a.id !== id) return a;
-            const next: Account = { ...a, ...patch };
+            const next: Account = { ...a, ...patch, updatedAt: now };
             if (patch.name !== undefined) {
               next.name = patch.name.trim() || a.name;
             }
-	            if (next.kind === "credit_card") {
-	              next.creditPaymentDay = clampPaymentDay(next.creditPaymentDay);
-	              next.creditLimit = Math.max(0, next.creditLimit ?? 0);
-	            } else {
-	              next.kind = undefined;
-	              next.creditPaymentDay = undefined;
-	              next.creditLimit = undefined;
-	            }
+            if (next.kind === "credit_card") {
+              next.creditPaymentDay = clampPaymentDay(next.creditPaymentDay);
+              next.creditLimit = Math.max(0, next.creditLimit ?? 0);
+            } else {
+              next.kind = undefined;
+              next.creditPaymentDay = undefined;
+              next.creditLimit = undefined;
+            }
             return next;
           }),
         }),
@@ -615,12 +639,140 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     // Переименовать счёт (id не меняется — операции не осиротеют)
     const renameAccount = (id: string, name: string) => {
+      const now = Date.now();
       setState((s) => ({
         ...s,
         ...touch({
-          accounts: s.accounts.map((a) => (a.id === id ? { ...a, name } : a)),
+          accounts: s.accounts.map((a) =>
+            a.id === id ? { ...a, name, updatedAt: now } : a
+          ),
         }),
       }));
+    };
+
+    const deleteAccount = (id: string) => {
+      const now = Date.now();
+      setState((s) => {
+        const account = s.accounts.find((a) => a.id === id);
+        if (!account || s.accounts.length <= 1) return s;
+        const replacementId =
+          (s.primaryAccountId &&
+          s.primaryAccountId !== id &&
+          s.accounts.some((a) => a.id === s.primaryAccountId)
+            ? s.primaryAccountId
+            : undefined) ??
+          s.accounts.find((a) => a.id !== id && a.kind !== "credit_card")?.id ??
+          s.accounts.find((a) => a.id !== id)?.id;
+        if (!replacementId) return s;
+
+        const remap = (accountId: string) =>
+          accountId === id ? replacementId : accountId;
+
+        const operations = s.operations.map((o) => {
+          const touches = o.accountId === id || o.toAccountId === id;
+          if (!touches) return o;
+          const accountId = remap(o.accountId);
+          const toAccountId = o.toAccountId ? remap(o.toAccountId) : o.toAccountId;
+          const becomesSelfTransfer =
+            o.type === "transfer" &&
+            toAccountId !== undefined &&
+            accountId === toAccountId;
+          return {
+            ...o,
+            accountId,
+            toAccountId,
+            deleted: becomesSelfTransfer ? true : o.deleted,
+            updatedAt: now,
+          };
+        });
+
+        const transfers = (s.transfers ?? []).map((t) => {
+          const touches = t.fromAccountId === id || t.toAccountId === id;
+          if (!touches) return t;
+          const fromAccountId = remap(t.fromAccountId);
+          const toAccountId = remap(t.toAccountId);
+          return {
+            ...t,
+            fromAccountId,
+            toAccountId,
+            deleted: fromAccountId === toAccountId ? true : t.deleted,
+            updatedAt: now,
+          };
+        });
+
+        const credits = (s.credits ?? []).map((c) => {
+          const payments = c.payments.map((p) =>
+            p.accountId === id ? { ...p, accountId: replacementId } : p
+          );
+          const touches =
+            c.accountId === id ||
+            c.receivedAccountId === id ||
+            c.payments.some((p) => p.accountId === id);
+          return touches
+            ? {
+                ...c,
+                accountId: remap(c.accountId),
+                receivedAccountId: c.receivedAccountId
+                  ? remap(c.receivedAccountId)
+                  : c.receivedAccountId,
+                payments,
+                updatedAt: now,
+              }
+            : c;
+        });
+
+        const debts = (s.debts ?? []).map((d) => {
+          const payments = d.payments.map((p) =>
+            p.accountId === id ? { ...p, accountId: replacementId } : p
+          );
+          const touches =
+            d.accountId === id || d.payments.some((p) => p.accountId === id);
+          return touches
+            ? { ...d, accountId: remap(d.accountId), payments, updatedAt: now }
+            : d;
+        });
+
+        const recurring = (s.recurring ?? []).map((r) =>
+          r.accountId === id
+            ? { ...r, accountId: replacementId, updatedAt: now }
+            : r
+        );
+
+        const templates = (s.templates ?? []).map((t) =>
+          t.accountId === id ? { ...t, accountId: replacementId } : t
+        );
+
+        const accounts = s.accounts
+          .filter((a) => a.id !== id)
+          .map((a) =>
+            a.id === replacementId
+              ? {
+                  ...a,
+                  baseBalance: a.baseBalance + account.baseBalance,
+                  updatedAt: now,
+                }
+              : a
+          );
+
+        return {
+          ...s,
+          ...touch({
+            accounts,
+            primaryAccountId:
+              s.primaryAccountId === id ? replacementId : s.primaryAccountId,
+            operations,
+            transfers,
+            credits,
+            debts,
+            recurring,
+            templates,
+            deletedAccountIds: {
+              ...(s.deletedAccountIds ?? {}),
+              [id]: now,
+            },
+          }),
+        };
+      });
     };
 
     const addTransfer = (t: Omit<Transfer, "id" | "updatedAt">) => {
@@ -990,6 +1142,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addAccount,
       updateAccount,
       renameAccount,
+      deleteAccount,
       addTransfer,
       deleteTransfer,
       updateGoal,

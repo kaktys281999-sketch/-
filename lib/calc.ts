@@ -81,6 +81,7 @@ export function operationDelta(op: Operation): number {
 // Дельта операции для КОНКРЕТНОГО счёта (учитывает перевод: −у источника, +у получателя)
 export function operationAccountDelta(op: Operation, accountId: string): number {
   if (op.type === "transfer") {
+    if (op.accountId === op.toAccountId) return 0;
     if (op.accountId === accountId) return -op.amount;
     if (op.toAccountId === accountId) return op.amount;
     return 0;

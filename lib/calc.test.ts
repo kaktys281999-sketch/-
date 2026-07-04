@@ -2,6 +2,7 @@
 // Без фреймворка — простой набор проверок, падает с кодом 1 при ошибке.
 import {
   operationDelta,
+  operationAccountDelta,
   debtAccountDelta,
   creditAccountDelta,
   transferAccountDelta,
@@ -235,6 +236,20 @@ const trPayCard = transfer({
 eq(transferAccountDelta(trPayCard, "sber"), -4000, "перевод: источник уменьшается");
 eq(transferAccountDelta(trPayCard, "card"), 4000, "перевод: получатель увеличивается");
 eq(transferAccountDelta(trPayCard, "yandex"), 0, "перевод: чужой счёт не задет");
+eq(
+  operationAccountDelta(
+    op({
+      type: "transfer",
+      accountId: "sber",
+      toAccountId: "sber",
+      amount: 4000,
+      category: "",
+    }),
+    "sber"
+  ),
+  0,
+  "операция-самоперевод не влияет на баланс"
+);
 
 // ---- creditInfo (агрегат по нескольким кредитам) ----
 const s4 = state({
@@ -491,6 +506,36 @@ const merged = mergeStates(local, remote);
 const mIds = merged.accounts.map((a) => a.id).sort();
 eq(mIds, ["cash", "newphone", "yandex"], "слияние счетов объединяет все id");
 eq(merged.accounts.find((a) => a.id === "yandex")!.baseBalance, 12345, "по общему счёту выигрывает свежий документ");
+
+const localDeletedAccount = state({
+  updatedAt: 300,
+  accounts: [{ id: "yandex", name: "Яндекс", baseBalance: 10000 }],
+  primaryAccountId: "cash",
+  deletedAccountIds: { cash: 300 },
+});
+const remoteWithOldAccount = state({
+  updatedAt: 200,
+  accounts: [
+    { id: "yandex", name: "Яндекс", baseBalance: 10000 },
+    { id: "cash", name: "Наличные", baseBalance: 500 },
+  ],
+});
+const mergedDeletedAccount = mergeStates(localDeletedAccount, remoteWithOldAccount);
+eq(
+  mergedDeletedAccount.accounts.some((a) => a.id === "cash"),
+  false,
+  "удалённый счёт не воскресает при слиянии со старым состоянием"
+);
+eq(
+  mergedDeletedAccount.deletedAccountIds?.cash,
+  300,
+  "надгробие удалённого счёта сохраняется при слиянии"
+);
+eq(
+  mergedDeletedAccount.primaryAccountId,
+  "yandex",
+  "основной счёт после слияния не указывает на удалённый id"
+);
 
 // ---- статистика по заметкам (Пятёрочка/Пятерочка группируются) ----
 const sNotes = state({

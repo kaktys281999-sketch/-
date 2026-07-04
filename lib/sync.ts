@@ -6,6 +6,7 @@ import {
   CreditConfig,
   RecurringRule,
   Transfer,
+  Account,
 } from "./types";
 
 // Формат данных, которыми приложение обменивается с Google-таблицей
@@ -26,6 +27,7 @@ export interface SyncPayload {
   busDefaultApplied?: AppState["busDefaultApplied"];
   recurring?: AppState["recurring"];
   debts?: AppState["debts"];
+  deletedAccountIds?: AppState["deletedAccountIds"];
 }
 
 // Преобразовать легаси-кредит (один) в новую сущность
@@ -72,6 +74,7 @@ export function toPayload(s: AppState): SyncPayload {
     busDefaultApplied: s.busDefaultApplied ?? false,
     recurring: s.recurring ?? [],
     debts: s.debts ?? [],
+    deletedAccountIds: s.deletedAccountIds ?? {},
   };
 }
 
@@ -90,6 +93,7 @@ export function fromPayload(p: SyncPayload): AppState {
     busDefaultApplied: p.busDefaultApplied ?? false,
     recurring: p.recurring ?? [],
     debts: p.debts ?? [],
+    deletedAccountIds: p.deletedAccountIds ?? {},
     updatedAt: p.updatedAt ?? 0,
   };
 }
@@ -157,18 +161,56 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
   const base = remoteNewer ? remote : local;
   const other = remoteNewer ? local : remote;
 
-  // Счета объединяем по id: версия из base (свежего документа) выигрывает по
-  // имени/балансу, но счёт, добавленный на другом устройстве, не теряется.
-  const baseAccIds = new Set(base.accounts.map((a) => a.id));
-  const accounts = [
-    ...base.accounts,
-    ...(other.accounts ?? []).filter((a) => !baseAccIds.has(a.id)),
+  const deletedAccountIds = {
+    ...(local.deletedAccountIds ?? {}),
+    ...(remote.deletedAccountIds ?? {}),
+  };
+  for (const [id, ts] of Object.entries(local.deletedAccountIds ?? {})) {
+    deletedAccountIds[id] = Math.max(ts, deletedAccountIds[id] ?? 0);
+  }
+  for (const [id, ts] of Object.entries(remote.deletedAccountIds ?? {})) {
+    deletedAccountIds[id] = Math.max(ts, deletedAccountIds[id] ?? 0);
+  }
+
+  // Счета объединяем по id. Для старых данных без updatedAt сохраняем прежнюю
+  // логику: побеждает версия из более свежего документа. Для новых данных
+  // account.updatedAt позволяет tombstone удаления не воскресать при sync.
+  const baseByAccountId = new Map(base.accounts.map((a) => [a.id, a]));
+  const otherByAccountId = new Map((other.accounts ?? []).map((a) => [a.id, a]));
+  const orderedAccountIds = [
+    ...base.accounts.map((a) => a.id),
+    ...(other.accounts ?? [])
+      .filter((a) => !baseByAccountId.has(a.id))
+      .map((a) => a.id),
   ];
+  const accounts: Account[] = [];
+  const keptDeletedAccountIds = { ...deletedAccountIds };
+  for (const id of orderedAccountIds) {
+    const baseAcc = baseByAccountId.get(id);
+    const otherAcc = otherByAccountId.get(id);
+    if (!baseAcc && !otherAcc) continue;
+    const acc =
+      baseAcc && otherAcc
+        ? baseAcc.updatedAt !== undefined || otherAcc.updatedAt !== undefined
+          ? (baseAcc.updatedAt ?? 0) >= (otherAcc.updatedAt ?? 0)
+            ? baseAcc
+            : otherAcc
+          : baseAcc
+        : baseAcc ?? otherAcc!;
+    const deletedAt = keptDeletedAccountIds[id] ?? 0;
+    const accountUpdatedAt = acc.updatedAt ?? 0;
+    if (deletedAt && deletedAt >= accountUpdatedAt) continue;
+    if (deletedAt && accountUpdatedAt > deletedAt) delete keptDeletedAccountIds[id];
+    accounts.push(acc);
+  }
+  const primaryAccountId = accounts.some((a) => a.id === base.primaryAccountId)
+    ? base.primaryAccountId
+    : accounts[0]?.id;
 
   return {
     accounts,
     goal: base.goal,
-    primaryAccountId: base.primaryAccountId,
+    primaryAccountId,
     budgets: base.budgets ?? {},
     budgetRollover: base.budgetRollover ?? false,
     templates: base.templates ?? [],
@@ -179,6 +221,7 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
     transfers,
     debts,
     credits,
+    deletedAccountIds: keptDeletedAccountIds,
     updatedAt: Math.max(local.updatedAt ?? 0, remote.updatedAt ?? 0),
   };
 }
