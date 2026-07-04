@@ -43,9 +43,9 @@ body {
 body {
   background: var(--bg);
   @apply text-slate-900 antialiased dark:text-slate-100;
-  /* Системный шрифт Apple (SF Pro), с запасными */
+  /* Системный шрифт Apple (SF Pro), с запасными. */
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
-    var(--font-manrope), system-ui, "Segoe UI", Roboto, sans-serif;
+    system-ui, "Segoe UI", Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
   letter-spacing: -0.01em;
 }
