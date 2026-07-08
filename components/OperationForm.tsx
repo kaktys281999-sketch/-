@@ -28,10 +28,14 @@ export interface OperationDraft {
 // Дефолт новой операции: расход «Продукты» — самое частое действие
 const DEFAULT_TYPE: OpType = "expense_personal";
 
-function emptyDraft(defaultAccount: string): OperationDraft {
+function rememberedDate(date?: string): string {
+  return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayISO();
+}
+
+function emptyDraft(defaultAccount: string, date?: string): OperationDraft {
   const def = getTypeDef(DEFAULT_TYPE);
   return {
-    date: todayISO(),
+    date: rememberedDate(date),
     type: def.type,
     category: def.categories[0].name, // «Продукты / еда / вода»
     amount: "",
@@ -96,7 +100,9 @@ export function OperationForm({
   const makeFresh = (): OperationDraft => {
     const last = getLastUsed();
     // скрытый из формы тип (кредиты/займы) не подставляем
-    if (!last || last.type === "credit_loan") return emptyDraft(defaultAccount);
+    if (!last || last.type === "credit_loan") {
+      return emptyDraft(defaultAccount, last?.date);
+    }
     const def = getTypeDef(last.type);
     const category = def.categories.some((c) => c.name === last.category)
       ? last.category
@@ -105,8 +111,7 @@ export function OperationForm({
       ? last.accountId
       : defaultAccount;
     return {
-      // дата новой операции — всегда сегодня (не «залипает» прошлая дата)
-      date: todayISO(),
+      date: rememberedDate(last.date),
       type: last.type,
       category,
       amount: "",
@@ -119,8 +124,9 @@ export function OperationForm({
   const [draft, setDraft] = useState<OperationDraft>(() => {
     const src = initial ?? prefill;
     if (src) {
+      const last = getLastUsed();
       return {
-        date: (initial?.date ?? todayISO()),
+        date: initial?.date ?? src.date ?? rememberedDate(last?.date),
         type: src.type ?? TYPES[0].type,
         category: src.category ?? getTypeDef(src.type ?? TYPES[0].type).categories[0].name,
         amount: src.amount ? String(src.amount) : "",
