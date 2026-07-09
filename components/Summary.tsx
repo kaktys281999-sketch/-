@@ -693,6 +693,38 @@ function paymentKindClass(kind: PaymentCalendarItem["kind"]): string {
   return "bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-300";
 }
 
+function paymentKindDotClass(kind: PaymentCalendarItem["kind"]): string {
+  if (kind === "subscription") return "bg-sky-500";
+  if (kind === "credit") return "bg-violet-500";
+  if (kind === "debt") return "bg-red-500";
+  if (kind === "credit_card") return "bg-amber-500";
+  return "bg-slate-500";
+}
+
+function paymentAmountText(item: PaymentCalendarItem): string {
+  return item.manualAmount
+    ? `долг ${formatMoney(item.amount)}`
+    : formatMoney(item.amount);
+}
+
+function paymentStateText(item: PaymentCalendarItem, today: string): string {
+  if (item.paid) return "оплачено";
+  if (item.manualAmount) return "сумма вручную";
+  if (item.date < today) return "просрочено";
+  return "к оплате";
+}
+
+function paymentTooltipTitle(items: PaymentCalendarItem[], today: string): string {
+  return items
+    .map(
+      (item) =>
+        `${paymentKindLabel(item.kind)}: ${item.title}, ${paymentAmountText(
+          item
+        )}, ${paymentStateText(item, today)}`
+    )
+    .join("\n");
+}
+
 function PaymentCalendarSection({
   month,
   today,
@@ -720,6 +752,8 @@ function PaymentCalendarSection({
     .reduce((sum, item) => sum + item.amount, 0);
   const manualCount = items.filter((item) => !item.paid && item.manualAmount).length;
   const unpaidCount = items.filter((item) => !item.paid).length;
+  const cells = calendarCells(month);
+  const totalRows = Math.ceil(cells.length / 7);
 
   const openByKind = (kind: PaymentCalendarItem["kind"]) => {
     if (kind === "subscription") return onOpenSubscriptions;
@@ -731,14 +765,18 @@ function PaymentCalendarSection({
   return (
     <div className="md:col-span-2">
       <SectionTitle>Календарь оплат</SectionTitle>
-      <Card className="!p-0 overflow-hidden">
-        <div className="flex items-start justify-between gap-3 px-4 py-3">
+      <Card className="!p-0 overflow-visible">
+        <div className="flex items-start justify-between gap-3 rounded-t-2xl bg-gradient-to-br from-brand/10 to-transparent px-4 py-3 dark:from-brand/20">
           <div>
             <div className="text-[13px] text-label-2">
-              {monthLabel(month)}
+              {monthLabel(month)} · фиксировано к оплате
             </div>
             <div className="mt-0.5 text-[22px] font-bold leading-none">
-              {totalFixed > 0 ? formatMoney(totalFixed) : "0 ₽"}
+              {totalFixed > 0
+                ? formatMoney(totalFixed)
+                : manualCount > 0
+                  ? "Сумма вручную"
+                  : "0 ₽"}
             </div>
           </div>
           <div className="max-w-[48%] text-right text-[12px] leading-snug text-label-2">
@@ -753,7 +791,7 @@ function PaymentCalendarSection({
           </div>
         </div>
 
-        <div className="grid grid-cols-7 border-t border-[var(--separator)] bg-black/[0.02] text-center text-[11px] font-semibold uppercase text-label-3 dark:bg-white/[0.03]">
+        <div className="grid grid-cols-7 gap-1 px-3 pb-1 pt-3 text-center text-[11px] font-semibold uppercase text-label-3">
           {WEEKDAYS.map((day) => (
             <div key={day} className="py-2">
               {day}
@@ -761,16 +799,18 @@ function PaymentCalendarSection({
           ))}
         </div>
 
-        <div className="grid grid-cols-7 border-t border-[var(--separator)]">
-          {calendarCells(month).map((day, index) => {
+        <div className="grid grid-cols-7 gap-1.5 px-3 pb-3">
+          {cells.map((day, index) => {
             if (!day) {
               return (
                 <div
                   key={`empty-${index}`}
-                  className="min-h-[56px] border-b border-r border-[var(--separator)] bg-black/[0.015] dark:bg-white/[0.02]"
+                  className="min-h-[64px] rounded-xl bg-black/[0.025] dark:bg-white/[0.03]"
                 />
               );
             }
+            const row = Math.floor(index / 7);
+            const col = index % 7;
             const iso = isoForDay(month, day);
             const dayItems = byDate.get(iso) ?? [];
             const unpaid = dayItems.filter((item) => !item.paid);
@@ -783,44 +823,119 @@ function PaymentCalendarSection({
               (item) => !item.manualAmount && item.date < today
             );
             const allPaid = dayItems.length > 0 && unpaid.length === 0;
+            const tooltipX =
+              col <= 1
+                ? "left-0"
+                : col >= 5
+                  ? "right-0"
+                  : "left-1/2 -translate-x-1/2";
+            const tooltipY =
+              row >= totalRows - 2 ? "bottom-full mb-2" : "top-full mt-2";
             return (
               <div
                 key={iso}
-                className={`min-h-[56px] border-b border-r border-[var(--separator)] p-1.5 ${
+                tabIndex={dayItems.length > 0 ? 0 : undefined}
+                title={
+                  dayItems.length > 0
+                    ? paymentTooltipTitle(dayItems, today)
+                    : undefined
+                }
+                aria-label={
+                  dayItems.length > 0
+                    ? paymentTooltipTitle(dayItems, today)
+                    : undefined
+                }
+                className={`group relative min-h-[64px] rounded-xl border p-2 outline-none transition ${
                   isOverdue
-                    ? "bg-red-50 dark:bg-red-950/25"
+                    ? "border-red-200 bg-red-50 shadow-sm dark:border-red-900/60 dark:bg-red-950/25"
                     : isToday
-                      ? "bg-brand/10"
+                      ? "border-brand/35 bg-brand/10 shadow-sm"
                       : dayItems.length > 0
-                        ? "bg-amber-50/70 dark:bg-amber-950/20"
-                        : ""
+                        ? "border-amber-200 bg-amber-50/70 shadow-sm dark:border-amber-900/50 dark:bg-amber-950/20"
+                        : "border-transparent bg-black/[0.025] dark:bg-white/[0.035]"
                 }`}
               >
                 <div className="flex items-center justify-between gap-1">
                   <span
-                    className={`text-[12px] font-semibold ${
-                      isToday ? "text-brand" : "text-label-2"
+                    className={`flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[12px] font-semibold ${
+                      isToday ? "bg-brand text-white" : "text-label-2"
                     }`}
                   >
                     {day}
                   </span>
-                  {dayItems.length > 0 && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-brand" />
+                  {dayItems.length > 1 && (
+                    <span className="rounded-full bg-black/[0.06] px-1.5 py-0.5 text-[10px] font-bold text-label-2 dark:bg-white/10">
+                      {dayItems.length}
+                    </span>
                   )}
                 </div>
                 {fixedSum > 0 && (
-                  <div className="mt-1 truncate text-[11px] font-bold leading-none text-red-600 dark:text-red-300">
+                  <div className="mt-2 inline-flex max-w-full rounded-full bg-white/80 px-1.5 py-1 text-[11px] font-bold leading-none text-red-600 shadow-sm dark:bg-black/20 dark:text-red-300">
                     {compactMoney(fixedSum)}
                   </div>
                 )}
                 {fixedSum <= 0 && hasManual && (
-                  <div className="mt-1 truncate text-[10px] font-semibold leading-none text-amber-700 dark:text-amber-300">
+                  <div className="mt-2 inline-flex max-w-full rounded-full bg-white/80 px-1.5 py-1 text-[10px] font-semibold leading-none text-amber-700 shadow-sm dark:bg-black/20 dark:text-amber-300">
                     вручн.
                   </div>
                 )}
                 {allPaid && (
-                  <div className="mt-1 text-[10px] font-semibold leading-none text-emerald-600 dark:text-emerald-400">
+                  <div className="mt-2 inline-flex max-w-full rounded-full bg-emerald-50 px-1.5 py-1 text-[10px] font-semibold leading-none text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300">
                     оплач.
+                  </div>
+                )}
+                {dayItems.length > 0 && (
+                  <div className="mt-2 flex gap-0.5">
+                    {dayItems.slice(0, 4).map((item) => (
+                      <span
+                        key={item.key}
+                        className={`h-1.5 flex-1 rounded-full ${paymentKindDotClass(
+                          item.kind
+                        )} ${item.paid ? "opacity-35" : ""}`}
+                      />
+                    ))}
+                  </div>
+                )}
+                {dayItems.length > 0 && (
+                  <div
+                    className={`pointer-events-none absolute ${tooltipX} ${tooltipY} z-30 hidden w-64 rounded-2xl border border-[var(--separator)] bg-white p-3 text-left shadow-2xl group-hover:block group-focus:block dark:bg-[#2c2c2e]`}
+                  >
+                    <div className="mb-2 text-[12px] font-semibold uppercase text-label-3">
+                      {formatDateShort(iso)}
+                    </div>
+                    <div className="space-y-2">
+                      {dayItems.map((item) => (
+                        <div key={item.key} className="min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span
+                                className={`mt-1 h-2 w-2 shrink-0 rounded-full ${paymentKindDotClass(
+                                  item.kind
+                                )} ${item.paid ? "opacity-35" : ""}`}
+                              />
+                              <span className="min-w-0 text-[13px] font-medium leading-snug">
+                                {item.title}
+                              </span>
+                            </span>
+                            <span
+                              className={`shrink-0 text-[12px] font-semibold ${
+                                item.manualAmount
+                                  ? "text-amber-700 dark:text-amber-300"
+                                  : item.paid
+                                    ? "text-label-3"
+                                    : "text-slate-900 dark:text-slate-100"
+                              }`}
+                            >
+                              {paymentAmountText(item)}
+                            </span>
+                          </div>
+                          <div className="mt-0.5 pl-3.5 text-[11px] text-label-2">
+                            {paymentKindLabel(item.kind)} ·{" "}
+                            {paymentStateText(item, today)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -837,9 +952,7 @@ function PaymentCalendarSection({
             {items.map((item, index) => {
               const opener = openByKind(item.kind);
               const overdue = !item.paid && !item.manualAmount && item.date < today;
-              const amountText = item.manualAmount
-                ? `долг ${formatMoney(item.amount)}`
-                : formatMoney(item.amount);
+              const amountText = paymentAmountText(item);
               const content = (
                 <>
                   <div className="min-w-0">
@@ -857,13 +970,8 @@ function PaymentCalendarSection({
                     </div>
                     <div className="mt-1 text-[12px] text-label-2">
                       {formatDateShort(item.date)}
-                      {item.paid
-                        ? " · оплачено"
-                        : item.manualAmount
-                          ? " · сумма вручную"
-                          : overdue
-                            ? " · просрочено"
-                            : " · к оплате"}
+                      {" · "}
+                      {paymentStateText(item, today)}
                     </div>
                   </div>
                   <span
