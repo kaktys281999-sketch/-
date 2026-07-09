@@ -167,6 +167,134 @@ export function creditCardDebtTotal(state: AppState): number {
     .reduce((sum, a) => sum + creditCardDebt(state, a.id), 0);
 }
 
+export type PaymentCalendarKind =
+  | "recurring"
+  | "subscription"
+  | "credit"
+  | "debt"
+  | "credit_card";
+
+export interface PaymentCalendarItem {
+  key: string;
+  date: string;
+  title: string;
+  amount: number;
+  kind: PaymentCalendarKind;
+  paid?: boolean;
+  manualAmount?: boolean;
+}
+
+function plannedDateInMonth(dayOfMonth: number, month: string): string {
+  const day = Math.min(
+    Math.max(1, dayOfMonth || 1),
+    lastDayOfMonth(month)
+  );
+  return `${month}-${pad2(day)}`;
+}
+
+export function paymentCalendar(
+  state: AppState,
+  month: string,
+  today: string
+): PaymentCalendarItem[] {
+  const items: PaymentCalendarItem[] = [];
+  const liveOperationIds = new Set(
+    state.operations.filter((o) => !o.deleted).map((o) => o.id)
+  );
+
+  for (const r of state.recurring ?? []) {
+    if (r.deleted || r.active === false || !r.startMonth || r.startMonth > month) {
+      continue;
+    }
+    const date = plannedDateInMonth(r.dayOfMonth, month);
+    const paid = liveOperationIds.has(subscriptionOpId(r.id, month));
+    if (r.kind === "subscription") {
+      items.push({
+        key: `sub-${r.id}`,
+        date,
+        title: `Подписка «${r.title || r.category}»`,
+        amount: r.amount,
+        kind: "subscription",
+        paid,
+      });
+    } else if (r.type === "expense_personal" || r.type === "expense_work") {
+      items.push({
+        key: `rec-${r.id}`,
+        date,
+        title: r.title || r.category,
+        amount: r.amount,
+        kind: "recurring",
+        paid,
+      });
+    }
+  }
+
+  for (const c of activeCredits(state)) {
+    const scheduledDates =
+      c.count > 0 ? c.paymentDates.slice(0, c.count) : c.paymentDates;
+    const paidTotal = c.payments.reduce((sum, p) => sum + p.amount, 0);
+    for (const [index, date] of scheduledDates.entries()) {
+      if (monthKeyFromISO(date) !== month || c.payment <= 0) continue;
+      const paidTowardThisPayment = Math.min(
+        c.payment,
+        Math.max(0, paidTotal - c.payment * index)
+      );
+      const remaining = Math.max(0, round2(c.payment - paidTowardThisPayment));
+      items.push({
+        key: `credit-${c.id}-${index}`,
+        date,
+        title: `Платёж по «${c.name}»`,
+        amount: remaining > 0 ? remaining : c.payment,
+        kind: "credit",
+        paid: remaining <= 0,
+      });
+    }
+  }
+
+  for (const d of state.debts ?? []) {
+    if (
+      d.deleted ||
+      d.direction !== "i_owe" ||
+      !d.dueDate ||
+      monthKeyFromISO(d.dueDate) !== month ||
+      isDebtSettled(d)
+    ) {
+      continue;
+    }
+    items.push({
+      key: `debt-${d.id}`,
+      date: d.dueDate,
+      title: `Долг «${d.person || "без имени"}»`,
+      amount: debtOutstanding(d),
+      kind: "debt",
+    });
+  }
+
+  const todayMonth = monthKeyFromISO(today);
+  for (const a of state.accounts) {
+    if (a.kind !== "credit_card") continue;
+    const debt = creditCardDebt(state, a.id);
+    if (debt <= 0) continue;
+    const date = creditCardDueDate(a, month);
+    if (!date) continue;
+    if (month < todayMonth || (month === todayMonth && date < today)) continue;
+    items.push({
+      key: `card-${a.id}`,
+      date,
+      title: `Оплата кредитки «${a.name}»`,
+      amount: debt,
+      kind: "credit_card",
+      manualAmount: true,
+    });
+  }
+
+  return items.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    if (Boolean(a.paid) !== Boolean(b.paid)) return a.paid ? 1 : -1;
+    return a.title.localeCompare(b.title, "ru");
+  });
+}
+
 // Предстоящие в текущем месяце списания: будущие регулярные операции этого
 // месяца (ещё не созданные) и платёж по кредиту, если его срок в этом месяце.
 export interface Upcoming {

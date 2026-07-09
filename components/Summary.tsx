@@ -12,7 +12,7 @@ import {
   debtsSummary,
   debtOutstanding,
   isDebtSettled,
-  upcomingThisMonth,
+  paymentCalendar,
   accountMonthFlow,
   accountTrend,
   subscriptionStatuses,
@@ -23,6 +23,7 @@ import {
   nextCreditCardDueDate,
   creditCardAvailable,
 } from "@/lib/store";
+import type { PaymentCalendarItem } from "@/lib/store";
 import {
   formatMoney,
   formatDateLong,
@@ -201,12 +202,8 @@ export function Summary({
     setActiveReminder(null);
   }
 
-  // Предстоящие списания текущего месяца (показываем только для текущего месяца)
+  const paymentItems = paymentCalendar(state, month, today);
   const isCurrentMonth = month === monthKey(new Date());
-  const upcoming = isCurrentMonth
-    ? upcomingThisMonth(state, month, todayISO())
-    : [];
-  const upcomingNet = upcoming.reduce((s, u) => s + u.sign * u.amount, 0);
 
   // Обороты по счетам за выбранный месяц (только со движением)
   const accountFlows = state.accounts
@@ -505,6 +502,15 @@ export function Summary({
         </Card>
       </div>
 
+      <PaymentCalendarSection
+        month={month}
+        today={today}
+        items={paymentItems}
+        onOpenDebts={onOpenDebts}
+        onOpenCredits={onOpenCredits}
+        onOpenSubscriptions={onOpenSubscriptions}
+      />
+
       {/* Обороты по счетам за месяц */}
       {accountFlows.length > 0 && (
         <div>
@@ -548,41 +554,6 @@ export function Summary({
                 </div>
               </div>
             ))}
-          </Card>
-        </div>
-      )}
-
-      {/* Предстоящие в этом месяце */}
-      {upcoming.length > 0 && (
-        <div>
-          <SectionTitle>Предстоящие в этом месяце</SectionTitle>
-          <Card className="!p-0">
-            {upcoming.map((u, i) => (
-              <div
-                key={u.key}
-                className={`flex items-center justify-between gap-3 px-4 py-3 text-[15px] ${
-                  i > 0 ? "border-t border-[var(--separator)]" : ""
-                }`}
-              >
-                <div className="min-w-0">
-                  <div className="truncate font-medium">{u.title}</div>
-                  <div className="text-[13px] text-label-2">
-                    {formatDateShort(u.date)}
-                    {u.kind === "recurring" ? " · регулярно" : " · кредит"}
-                  </div>
-                </div>
-                <Money
-                  value={u.sign * u.amount}
-                  showPlus
-                  colorPositive
-                  className="shrink-0 font-semibold"
-                />
-              </div>
-            ))}
-            <div className="flex items-center justify-between border-t border-[var(--separator)] px-4 py-3 text-[15px]">
-              <span className="text-label-2">Итого изменит баланс</span>
-              <Money value={upcomingNet} showPlus colorPositive className="font-semibold" />
-            </div>
           </Card>
         </div>
       )}
@@ -666,6 +637,271 @@ export function Summary({
           </Card>
         </div>
       )}
+    </div>
+  );
+}
+
+const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
+function calendarCells(month: string): Array<number | null> {
+  const [year, monthIndex] = month.split("-").map(Number);
+  const daysInMonth = new Date(year, monthIndex, 0).getDate();
+  const firstWeekday = new Date(year, monthIndex - 1, 1).getDay();
+  const mondayOffset = (firstWeekday + 6) % 7;
+  const cells: Array<number | null> = [
+    ...Array.from({ length: mondayOffset }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+function isoForDay(month: string, day: number): string {
+  return `${month}-${String(day).padStart(2, "0")}`;
+}
+
+function compactMoney(value: number): string {
+  const rounded = Math.round(value);
+  const abs = Math.abs(rounded);
+  const sign = rounded < 0 ? "-" : "";
+  if (abs >= 1000000) return `${sign}${Math.round(abs / 1000000)}м`;
+  if (abs >= 1000) return `${sign}${Math.round(abs / 1000)}к`;
+  return `${sign}${abs}`;
+}
+
+function paymentKindLabel(kind: PaymentCalendarItem["kind"]): string {
+  if (kind === "subscription") return "Подписка";
+  if (kind === "credit") return "Кредит";
+  if (kind === "debt") return "Долг";
+  if (kind === "credit_card") return "Кредитка";
+  return "Регулярно";
+}
+
+function paymentKindClass(kind: PaymentCalendarItem["kind"]): string {
+  if (kind === "subscription") {
+    return "bg-sky-50 text-sky-700 dark:bg-sky-950/35 dark:text-sky-300";
+  }
+  if (kind === "credit") {
+    return "bg-violet-50 text-violet-700 dark:bg-violet-950/35 dark:text-violet-300";
+  }
+  if (kind === "debt") {
+    return "bg-red-50 text-red-700 dark:bg-red-950/35 dark:text-red-300";
+  }
+  if (kind === "credit_card") {
+    return "bg-amber-50 text-amber-700 dark:bg-amber-950/35 dark:text-amber-300";
+  }
+  return "bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-300";
+}
+
+function PaymentCalendarSection({
+  month,
+  today,
+  items,
+  onOpenDebts,
+  onOpenCredits,
+  onOpenSubscriptions,
+}: {
+  month: string;
+  today: string;
+  items: PaymentCalendarItem[];
+  onOpenDebts?: () => void;
+  onOpenCredits?: () => void;
+  onOpenSubscriptions?: () => void;
+}) {
+  const byDate = new Map<string, PaymentCalendarItem[]>();
+  for (const item of items) {
+    const list = byDate.get(item.date) ?? [];
+    list.push(item);
+    byDate.set(item.date, list);
+  }
+
+  const totalFixed = items
+    .filter((item) => !item.paid && !item.manualAmount)
+    .reduce((sum, item) => sum + item.amount, 0);
+  const manualCount = items.filter((item) => !item.paid && item.manualAmount).length;
+  const unpaidCount = items.filter((item) => !item.paid).length;
+
+  const openByKind = (kind: PaymentCalendarItem["kind"]) => {
+    if (kind === "subscription") return onOpenSubscriptions;
+    if (kind === "credit") return onOpenCredits;
+    if (kind === "debt") return onOpenDebts;
+    return undefined;
+  };
+
+  return (
+    <div className="md:col-span-2">
+      <SectionTitle>Календарь оплат</SectionTitle>
+      <Card className="!p-0 overflow-hidden">
+        <div className="flex items-start justify-between gap-3 px-4 py-3">
+          <div>
+            <div className="text-[13px] text-label-2">
+              {monthLabel(month)}
+            </div>
+            <div className="mt-0.5 text-[22px] font-bold leading-none">
+              {totalFixed > 0 ? formatMoney(totalFixed) : "0 ₽"}
+            </div>
+          </div>
+          <div className="max-w-[48%] text-right text-[12px] leading-snug text-label-2">
+            {unpaidCount > 0
+              ? `${unpaidCount} к оплате`
+              : "Все оплаты закрыты"}
+            {manualCount > 0 && (
+              <div className="mt-0.5 text-amber-700 dark:text-amber-300">
+                {manualCount} с ручной суммой
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-7 border-t border-[var(--separator)] bg-black/[0.02] text-center text-[11px] font-semibold uppercase text-label-3 dark:bg-white/[0.03]">
+          {WEEKDAYS.map((day) => (
+            <div key={day} className="py-2">
+              {day}
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-7 border-t border-[var(--separator)]">
+          {calendarCells(month).map((day, index) => {
+            if (!day) {
+              return (
+                <div
+                  key={`empty-${index}`}
+                  className="min-h-[56px] border-b border-r border-[var(--separator)] bg-black/[0.015] dark:bg-white/[0.02]"
+                />
+              );
+            }
+            const iso = isoForDay(month, day);
+            const dayItems = byDate.get(iso) ?? [];
+            const unpaid = dayItems.filter((item) => !item.paid);
+            const fixedSum = unpaid
+              .filter((item) => !item.manualAmount)
+              .reduce((sum, item) => sum + item.amount, 0);
+            const hasManual = unpaid.some((item) => item.manualAmount);
+            const isToday = iso === today;
+            const isOverdue = unpaid.some(
+              (item) => !item.manualAmount && item.date < today
+            );
+            const allPaid = dayItems.length > 0 && unpaid.length === 0;
+            return (
+              <div
+                key={iso}
+                className={`min-h-[56px] border-b border-r border-[var(--separator)] p-1.5 ${
+                  isOverdue
+                    ? "bg-red-50 dark:bg-red-950/25"
+                    : isToday
+                      ? "bg-brand/10"
+                      : dayItems.length > 0
+                        ? "bg-amber-50/70 dark:bg-amber-950/20"
+                        : ""
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span
+                    className={`text-[12px] font-semibold ${
+                      isToday ? "text-brand" : "text-label-2"
+                    }`}
+                  >
+                    {day}
+                  </span>
+                  {dayItems.length > 0 && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-brand" />
+                  )}
+                </div>
+                {fixedSum > 0 && (
+                  <div className="mt-1 truncate text-[11px] font-bold leading-none text-red-600 dark:text-red-300">
+                    {compactMoney(fixedSum)}
+                  </div>
+                )}
+                {fixedSum <= 0 && hasManual && (
+                  <div className="mt-1 truncate text-[10px] font-semibold leading-none text-amber-700 dark:text-amber-300">
+                    вручн.
+                  </div>
+                )}
+                {allPaid && (
+                  <div className="mt-1 text-[10px] font-semibold leading-none text-emerald-600 dark:text-emerald-400">
+                    оплач.
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {items.length === 0 ? (
+          <div className="px-4 py-4 text-center text-[14px] text-label-2">
+            На этот месяц оплат не запланировано.
+          </div>
+        ) : (
+          <div className="border-t border-[var(--separator)]">
+            {items.map((item, index) => {
+              const opener = openByKind(item.kind);
+              const overdue = !item.paid && !item.manualAmount && item.date < today;
+              const amountText = item.manualAmount
+                ? `долг ${formatMoney(item.amount)}`
+                : formatMoney(item.amount);
+              const content = (
+                <>
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${paymentKindClass(
+                          item.kind
+                        )}`}
+                      >
+                        {paymentKindLabel(item.kind)}
+                      </span>
+                      <span className="truncate text-[15px] font-medium">
+                        {item.title}
+                      </span>
+                    </div>
+                    <div className="mt-1 text-[12px] text-label-2">
+                      {formatDateShort(item.date)}
+                      {item.paid
+                        ? " · оплачено"
+                        : item.manualAmount
+                          ? " · сумма вручную"
+                          : overdue
+                            ? " · просрочено"
+                            : " · к оплате"}
+                    </div>
+                  </div>
+                  <span
+                    className={`shrink-0 text-right text-[15px] font-semibold ${
+                      item.paid
+                        ? "text-label-3"
+                        : item.manualAmount
+                          ? "text-amber-700 dark:text-amber-300"
+                          : overdue
+                            ? "text-red-600 dark:text-red-300"
+                            : ""
+                    }`}
+                  >
+                    {amountText}
+                  </span>
+                </>
+              );
+              const className = `flex w-full items-center justify-between gap-3 px-4 py-3 text-left ${
+                index > 0 ? "border-t border-[var(--separator)]" : ""
+              }`;
+              return opener ? (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={opener}
+                  className={`${className} active:bg-black/[0.03] dark:active:bg-white/5`}
+                >
+                  {content}
+                </button>
+              ) : (
+                <div key={item.key} className={className}>
+                  {content}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

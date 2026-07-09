@@ -18,6 +18,7 @@ import {
   realPosition,
   dueRecurringOperations,
   upcomingThisMonth,
+  paymentCalendar,
   accountMonthFlow,
   accountTrend,
   subscriptionsMonthlyTotal,
@@ -334,6 +335,62 @@ const su2 = state({
   operations: [op({ id: "rec-rA-2026-06" })],
 });
 eq(upcomingThisMonth(su2, "2026-06", "2026-06-10").length, 0, "созданная регулярная не предстоит");
+
+// ---- paymentCalendar ----
+const paymentsCalendarState = state({
+  accounts: [
+    { id: "yandex", name: "Яндекс", baseBalance: 10000 },
+    {
+      id: "card",
+      name: "Сплит",
+      baseBalance: -5500,
+      kind: "credit_card",
+      creditPaymentDay: 2,
+    },
+  ],
+  recurring: [
+    rule({ id: "sub1", kind: "subscription", title: "Музыка", amount: 500, dayOfMonth: 5, startMonth: "2026-01" }),
+    rule({ id: "subPaid", kind: "subscription", title: "Облако", amount: 700, dayOfMonth: 6, startMonth: "2026-01" }),
+    rule({ id: "rent", title: "Аренда", amount: 20000, dayOfMonth: 10, startMonth: "2026-01" }),
+    rule({ id: "salary", title: "Зарплата", type: "income", category: "Прочий доход", amount: 50000, dayOfMonth: 20, startMonth: "2026-01" }),
+    rule({ id: "move", title: "Переложить", type: "transfer", category: "", amount: 1000, dayOfMonth: 22, startMonth: "2026-01" }),
+  ],
+  operations: [op({ id: "rec-subPaid-2026-08", recurringId: "subPaid", amount: 700, date: "2026-08-06" })],
+  credits: [
+    credit({
+      id: "creditA",
+      name: "Альфа",
+      payment: 1000,
+      count: 2,
+      paymentDates: ["2026-08-15", "2026-09-15"],
+      payments: [{ id: "cp1", date: "2026-08-01", amount: 300, accountId: "yandex" }],
+    }),
+  ],
+  debts: [
+    debt({ id: "owe1", direction: "i_owe", person: "Боря", amount: 3000, dueDate: "2026-08-20" }),
+    debt({ id: "me1", direction: "owed_to_me", person: "Ира", amount: 2000, dueDate: "2026-08-21" }),
+  ],
+});
+const payCal = paymentCalendar(paymentsCalendarState, "2026-08", "2026-07-09");
+eq(
+  payCal.map((p) => [p.date, p.kind, p.title, p.amount, Boolean(p.paid), Boolean(p.manualAmount)]),
+  [
+    ["2026-08-02", "credit_card", "Оплата кредитки «Сплит»", 5500, false, true],
+    ["2026-08-05", "subscription", "Подписка «Музыка»", 500, false, false],
+    ["2026-08-06", "subscription", "Подписка «Облако»", 700, true, false],
+    ["2026-08-10", "recurring", "Аренда", 20000, false, false],
+    ["2026-08-15", "credit", "Платёж по «Альфа»", 700, false, false],
+    ["2026-08-20", "debt", "Долг «Боря»", 3000, false, false],
+  ],
+  "календарь оплат собирает обязательства месяца"
+);
+eq(
+  paymentCalendar(paymentsCalendarState, "2026-07", "2026-07-09").some(
+    (p) => p.kind === "credit_card"
+  ),
+  false,
+  "календарь оплат не показывает прошедшую дату кредитки в текущем месяце"
+);
 
 // ---- accountMonthFlow ----
 const sf = state({
