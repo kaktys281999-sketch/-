@@ -334,7 +334,12 @@ export function Summary({
       {/* На руках + счета */}
       <Card className="!p-0">
         <div className="flex items-center justify-between px-4 py-3">
-          <span className="text-[15px] font-medium">На руках</span>
+          <span>
+            <span className="block text-[15px] font-medium">На руках</span>
+            <span className="block text-[12px] text-label-3">
+              обычные счета, без кредиток
+            </span>
+          </span>
           <span className="text-[17px] font-semibold">{formatMoney(onHand)}</span>
         </div>
         {regularAccounts.map((a) => (
@@ -353,8 +358,13 @@ export function Summary({
           </div>
         ))}
         {creditCardAccounts.length > 0 && (
-          <div className="border-t border-[var(--separator)] px-4 pb-1 pt-3 text-[12px] font-semibold uppercase tracking-wide text-label-3">
-            Кредитки
+          <div className="border-t border-[var(--separator)] px-4 pb-1 pt-3">
+            <div className="text-[12px] font-semibold uppercase tracking-wide text-label-3">
+              Кредитки
+            </div>
+            <div className="mt-0.5 text-[12px] normal-case tracking-normal text-label-3">
+              траты меняют долг и остаток, не сумму на руках
+            </div>
           </div>
         )}
         {creditCardAccounts.map((a) => {

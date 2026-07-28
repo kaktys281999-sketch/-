@@ -167,6 +167,19 @@ eq(currentBalance(s1, "yandex"), 10000, "Яндекс без операций = 
 eq(currentBalance(s1, "missing"), 0, "несуществующий счёт = 0");
 eq(totalOnHand(s1), 10000 + (5000 + 2000 - 700 - 1500) + 0, "на руках = сумма счетов");
 
+const onHandRegularOps = state({
+  operations: [
+    op({ type: "income", category: "Прочий доход", amount: 1200, accountId: "sber" }),
+    op({ type: "expense_personal", amount: 450, accountId: "sber" }),
+    op({ type: "expense_work", category: "Profi", amount: 300, accountId: "yandex" }),
+  ],
+});
+eq(
+  totalOnHand(onHandRegularOps),
+  10000 - 300 + 5000 + 1200 - 450,
+  "обычные операции меняют «на руках»"
+);
+
 // ---- debtsSummary (удалённые игнорируются) ----
 const s2 = state({
   debts: [
@@ -429,6 +442,19 @@ eq(creditCardAvailable(sCard, "card"), 8500, "кредитка: доступно
 eq(creditCardDebtTotal(sCard), 1500, "кредитка: общий долг по кредиткам");
 eq(totalOnHand(sCard), 9000, "кредитка: на руках считаются только обычные счета");
 eq(realPosition(sCard), 7500, "кредитка: реальная позиция учитывает долг по карте");
+eq(
+  totalOnHand(
+    state({
+      accounts: [
+        { id: "sber", name: "Сбер", baseBalance: 10000 },
+        { id: "card", name: "Кредитка", baseBalance: 0, kind: "credit_card", creditLimit: 10000 },
+      ],
+      operations: [op({ accountId: "card", amount: 2500 })],
+    })
+  ),
+  10000,
+  "трата с кредитки не меняет «на руках», меняет долг по карте"
+);
 eq(creditCardDueDate(sCard.accounts[1], "2026-02"), "2026-02-28", "день оплаты кредитки обрезается под месяц");
 eq(
   nextCreditCardDueDate(
