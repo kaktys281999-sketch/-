@@ -12,10 +12,11 @@ import {
   operationsToCSV,
   debtsToCSV,
   creditsToCSV,
+  aiContextMarkdown,
   downloadFile,
 } from "@/lib/export";
 import { TYPES } from "@/lib/categories";
-import { formatDateShort, formatMoney } from "@/lib/format";
+import { formatDateShort, formatMoney, todayISO } from "@/lib/format";
 import { Card, NumberInput } from "./ui";
 
 // Категории расходов (личные + рабочие) — для лимитов
@@ -72,6 +73,20 @@ export function Settings() {
           <button
             type="button"
             onClick={() => {
+              const today = todayISO();
+              downloadFile(
+                `финансы-контекст-для-ии-${today}.md`,
+                aiContextMarkdown(state, today),
+                "text/markdown;charset=utf-8"
+              );
+            }}
+            className="w-full py-3.5 text-center text-[17px] font-medium text-brand"
+          >
+            Скачать контекст для ИИ (MD)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
               const today = new Date().toISOString().slice(0, 10);
               downloadFile(
                 `финансы-операции-${today}.csv`,
@@ -79,7 +94,7 @@ export function Settings() {
                 "text/csv;charset=utf-8"
               );
             }}
-            className="w-full py-3.5 text-center text-[17px] font-medium text-brand"
+            className="w-full border-t border-[var(--separator)] py-3.5 text-center text-[17px] font-medium text-brand"
           >
             Скачать операции (CSV)
           </button>
