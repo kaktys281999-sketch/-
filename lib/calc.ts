@@ -33,6 +33,18 @@ function lastDayOfMonth(month: string): number {
   return new Date(y, m, 0).getDate();
 }
 
+// Разница в днях между двумя ISO-датами. Считает от ПЕРЕДАННОЙ даты, а не от
+// «сейчас», иначе поведение нельзя проверить тестом: daysUntil из format.ts
+// завязан на new Date() и в тесте всегда отвечал бы про сегодня.
+function daysBetweenISO(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  return Math.round(
+    (new Date(ty, tm - 1, td).getTime() - new Date(fy, fm - 1, fd).getTime()) /
+      86400000
+  );
+}
+
 // Какие операции по регулярным правилам нужно создать.
 // id операции детерминированный (`rec-<rule>-<month>`) — это исключает дубли
 // при повторной генерации и между устройствами при синхронизации.
@@ -424,6 +436,52 @@ export function subscriptionStatuses(
       upcoming: !paid && date > today,
     };
   });
+}
+
+// Ближайшие НЕоплаченные экземпляры подписок, для напоминаний на сводке.
+//
+// Чем отличается от subscriptionStatuses: тот отвечает про один заданный месяц
+// и для экрана «Подписки» это верно. Для напоминания это оказалось ловушкой.
+// У подписки хранится только число месяца, а дата собирается как месяц + число.
+// Пока перебирался лишь текущий месяц, подписка первых чисел не могла попасть в
+// окно предупреждения ВООБЩЕ: 31 августа приложение умело рассуждать только про
+// августовский экземпляр, уже оплаченный, а сентябрьский не создавался нигде.
+// «Квартира» 1-го числа становилась видна ровно 1-го числа, то есть в день
+// списания, и это 22 000 рублей. Долги, кредиты и кредитки этим не болели, у
+// них дата хранится настоящая, поэтому границу месяца они переходили спокойно.
+// Найдено 31.08.2026 на живых данных.
+//
+// Просроченное отдаётся ВСЕГДА, независимо от окна. Иначе забытая подписка
+// молча пропала бы с глаз, и тишина означала бы сразу и «всё оплачено», и
+// «мы прозевали», а это разные новости.
+export interface SubscriptionDue {
+  rule: RecurringRule;
+  date: string;   // дата этого экземпляра
+  month: string;  // месяц экземпляра, он же ключ операции rec-<rule>-<month>
+  overdue: boolean;
+}
+
+export function subscriptionsDue(
+  state: AppState,
+  today: string,
+  horizonDays: number
+): SubscriptionDue[] {
+  const thisMonth = monthKeyFromISO(today);
+  const out: SubscriptionDue[] = [];
+  for (const r of activeSubscriptions(state)) {
+    // Текущий месяц и следующий. Дальше заглядывать незачем: окно меньше месяца,
+    // а два экземпляра одного правила разом попадают в него только на стыке.
+    for (const month of [thisMonth, shiftMonth(thisMonth, 1)]) {
+      if (r.startMonth && r.startMonth > month) continue; // ещё не началась
+      if (isSubscriptionPaid(state, r.id, month)) continue;
+      const day = Math.min(Math.max(1, r.dayOfMonth || 1), lastDayOfMonth(month));
+      const date = `${month}-${pad2(day)}`;
+      const overdue = date <= today;
+      if (!overdue && daysBetweenISO(today, date) > horizonDays) continue;
+      out.push({ rule: r, date, month, overdue });
+    }
+  }
+  return out;
 }
 
 // ----- Автоопределение подписок из истории трат -----

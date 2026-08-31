@@ -15,7 +15,7 @@ import {
   paymentCalendar,
   accountMonthFlow,
   accountTrend,
-  subscriptionStatuses,
+  subscriptionsDue,
   subscriptionsMonthlyTotal,
   expensePace,
   notesBreakdown,
@@ -30,6 +30,7 @@ import {
   formatDateShort,
   monthLabel,
   monthKey,
+  monthKeyFromISO,
   shiftMonth,
   daysUntil,
   relativeDayLabel,
@@ -54,6 +55,8 @@ type Reminder = {
   kind: ReminderKind;
   targetId: string;
   defaultAccountId: string;
+  // Чем заполнить поле даты в форме оплаты. Пусто значит сегодня.
+  defaultDate?: string;
   actionLabel: string;
   onOpen?: () => void;
 };
@@ -82,7 +85,6 @@ export function Summary({
   const position = realPosition(state);
   const debts = debtsSummary(state);
   const hasDebts = debts.owedToMe > 0 || debts.iOwe > 0;
-  const realMonth = monthKey(new Date());
   const today = todayISO();
   const primary =
     state.primaryAccountId ?? state.accounts[0]?.id ?? "";
@@ -102,19 +104,28 @@ export function Summary({
     );
   };
 
-  for (const s of subscriptionStatuses(state, realMonth, today)) {
-    if (s.paid) continue;
-    const days = daysUntil(s.date);
-    if (days > 7) continue;
+  // Окно и отбор экземпляров живут в subscriptionsDue: подписка хранит только
+  // число месяца, поэтому «через неделю» для неё нельзя посчитать, не выйдя за
+  // границу текущего месяца. См. комментарий там же.
+  for (const s of subscriptionsDue(state, today, 7)) {
     reminders.push({
-      key: `s-${s.rule.id}`,
-      days,
+      // Месяц в ключе обязателен. На стыке месяцев одно правило даёт два
+      // экземпляра разом (просроченный и будущий), и без месяца React получил
+      // бы два одинаковых ключа.
+      key: `s-${s.rule.id}-${s.month}`,
+      days: daysUntil(s.date),
       iso: s.date,
       title: `Подписка «${s.rule.title || s.rule.category}»`,
       amount: s.rule.amount,
       kind: "subscription",
       targetId: s.rule.id,
       defaultAccountId: s.rule.accountId,
+      // Оплата создаёт операцию с id `rec-<правило>-<месяц ДАТЫ платежа>`.
+      // Для экземпляра следующего месяца сегодняшняя дата отметила бы
+      // оплаченным ТЕКУЩИЙ месяц, то есть не тот, и напоминание осталось бы
+      // висеть. Поэтому подставляем дату самого экземпляра.
+      defaultDate:
+        s.month === monthKeyFromISO(today) ? undefined : s.date,
       actionLabel: "Оплатить",
       onOpen: onOpenSubscriptions,
     });
@@ -1093,7 +1104,7 @@ function ReminderPaymentPanel({
     manualAmount ? "" : String(Math.round(reminder.amount))
   );
   const [accountId, setAccountId] = useState(initialAccount);
-  const [date, setDate] = useState(todayISO());
+  const [date, setDate] = useState(reminder.defaultDate ?? todayISO());
   const [error, setError] = useState("");
 
   const amount = Math.abs(Number(amountText.replace(/\s/g, "").replace(",", ".")));

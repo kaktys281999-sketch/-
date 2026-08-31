@@ -24,6 +24,7 @@ import {
   subscriptionsMonthlyTotal,
   isSubscriptionPaid,
   subscriptionStatuses,
+  subscriptionsDue,
   suggestSubscriptions,
   expensePace,
   categoryBudget,
@@ -733,6 +734,74 @@ eq(currentBalance(transferState, "tinkoff"), 1000, "перевод: на счё�
 eq(totalOnHand(transferState), 15000, "перевод: всего на руках не меняется");
 eq(monthSummary(transferState, "2026-05").income, 0, "перевод — не доход");
 eq(monthSummary(transferState, "2026-05").expense, 0, "перевод — не расход");
+
+
+// ---- подписки: граница месяца ----
+// Найдено 31.08.2026 на живых данных. У подписки хранится только число месяца,
+// и пока напоминание перебирало ЛИШЬ текущий месяц, подписка первых чисел не
+// могла попасть в окно предупреждения вообще: 31 августа сентябрьский
+// экземпляр не создавался нигде. «Квартира» 1-го числа, 22 000 рублей,
+// становилась видна ровно в день списания.
+// Старые тесты этого не ловили, потому что спрашивали про июнь, стоя в июне.
+const kv = (p: Partial<RecurringRule> = {}) =>
+  sub({ id: "kv", amount: 22000, dayOfMonth: 1, startMonth: "2026-01", ...p });
+
+// главный случай: август оплачен, стоим 31 августа, сентябрь через день
+const sBorder = state({
+  recurring: [kv()],
+  operations: [
+    op({ id: "rec-kv-2026-08", recurringId: "kv", amount: 22000, date: "2026-08-01" }),
+  ],
+});
+const dueBorder = subscriptionsDue(sBorder, "2026-08-31", 7);
+eq(dueBorder.length, 1, "граница месяца: сентябрьская подписка видна 31 августа");
+eq(dueBorder[0]?.date ?? "ничего не вернулось", "2026-09-01", "граница месяца: дата экземпляра сентябрьская");
+eq(dueBorder[0]?.month ?? "ничего не вернулось", "2026-09", "граница месяца: оплата уйдёт в сентябрь, не в август");
+eq(dueBorder[0]?.overdue ?? "ничего не вернулось", false, "граница месяца: это предстоящее, а не просрочка");
+
+// в середине месяца оплаченная молчит, а следующая ещё далеко
+eq(
+  subscriptionsDue(sBorder, "2026-08-10", 7).length,
+  0,
+  "граница месяца: в середине августа тишина, и это правда"
+);
+
+// просроченное не исчезает, сколько бы ни прошло, и не вытесняется будущим
+const dueBoth = subscriptionsDue(state({ recurring: [kv()] }), "2026-08-31", 7);
+eq(dueBoth.length, 2, "неоплаченный август и близкий сентябрь показываются ОБА");
+eq([dueBoth[0]?.month, dueBoth[0]?.overdue], ["2026-08", true], "август просрочен");
+eq([dueBoth[1]?.month, dueBoth[1]?.overdue], ["2026-09", false], "сентябрь предстоит");
+
+// окно соблюдается с обеих сторон
+const sWin = state({
+  recurring: [sub({ id: "w", amount: 100, dayOfMonth: 8, startMonth: "2026-01" })],
+  operations: [
+    op({ id: "rec-w-2026-07", recurringId: "w", amount: 100, date: "2026-07-08" }),
+  ],
+});
+eq(subscriptionsDue(sWin, "2026-07-31", 7).length, 0, "окно: 8 дней вперёд это уже далеко");
+eq(subscriptionsDue(sWin, "2026-08-01", 7).length, 1, "окно: ровно 7 дней вперёд ещё близко");
+
+// короткий месяц не рождает несуществующую дату
+const clamp = subscriptionsDue(
+  state({ recurring: [sub({ id: "c", amount: 300, dayOfMonth: 31, startMonth: "2026-01" })] }),
+  "2026-09-25",
+  7
+);
+eq(clamp.length, 1, "короткий месяц: один экземпляр");
+eq(clamp[0]?.date ?? "ничего не вернулось", "2026-09-30", "короткий месяц: 31-е становится 30-м, а не пропадает");
+
+// выключенная и ещё не начавшаяся молчат
+eq(
+  subscriptionsDue(state({ recurring: [kv({ id: "off", active: false })] }), "2026-08-31", 7).length,
+  0,
+  "выключенная подписка о себе не напоминает"
+);
+eq(
+  subscriptionsDue(state({ recurring: [kv({ id: "later", startMonth: "2026-10" })] }), "2026-08-31", 7).length,
+  0,
+  "ещё не начавшаяся подписка о себе не напоминает"
+);
 
 // ---- итог ----
 console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);
