@@ -27,6 +27,7 @@ export const TYPES: TypeDef[] = [
     label: "Расход — личное",
     categories: [
       { name: "Продукты / еда / вода", sign: -1 },
+      { name: "Рестораны и кафе", sign: -1 },
       { name: "Проезд / транспорт", sign: -1 },
       { name: "Мобильный / подписки", sign: -1 },
       { name: "Остальное / разное", sign: -1 },
@@ -50,6 +51,11 @@ export const TYPES: TypeDef[] = [
       { name: "Дал в долг", sign: -1 },
       { name: "Возврат долга мне", sign: 1 },
     ],
+  },
+  {
+    type: "transfer",
+    label: "Перевод",
+    categories: [],
   },
 ];
 

@@ -1,25 +1,63 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, ComponentType } from "react";
 import { monthKey } from "@/lib/format";
 import { MonthSwitcher } from "@/components/MonthSwitcher";
 import { Summary } from "@/components/Summary";
 import { AddOperation } from "@/components/AddOperation";
 import { Operations } from "@/components/Operations";
+import { Debts } from "@/components/Debts";
+import { Credits } from "@/components/Credits";
+import { Subscriptions } from "@/components/Subscriptions";
 import { Settings } from "@/components/Settings";
+import { SyncBadge } from "@/components/SyncBadge";
+import { SaveButton } from "@/components/SaveButton";
+import {
+  IconSummary,
+  IconAdd,
+  IconList,
+  IconDebts,
+  IconCredit,
+  IconSubscriptions,
+  IconSettings,
+} from "@/components/icons";
 
-type Tab = "summary" | "add" | "operations" | "settings";
+type Tab =
+  | "summary"
+  | "add"
+  | "operations"
+  | "debts"
+  | "credits"
+  | "subscriptions"
+  | "settings";
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: "summary", label: "Сводка", icon: "📊" },
-  { id: "add", label: "Добавить", icon: "➕" },
-  { id: "operations", label: "Операции", icon: "📋" },
-  { id: "settings", label: "Настройки", icon: "⚙️" },
+const TABS: {
+  id: Tab;
+  label: string;
+  Icon: ComponentType<{ className?: string }>;
+}[] = [
+  { id: "summary", label: "Сводка", Icon: IconSummary },
+  { id: "add", label: "Добавить", Icon: IconAdd },
+  { id: "operations", label: "Операции", Icon: IconList },
+  { id: "debts", label: "Долги", Icon: IconDebts },
+  { id: "credits", label: "Кредиты", Icon: IconCredit },
+  { id: "subscriptions", label: "Подписки", Icon: IconSubscriptions },
+  { id: "settings", label: "Настройки", Icon: IconSettings },
 ];
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("summary");
   const [month, setMonth] = useState<string>("");
+  // запрос поиска, переданный из «Сводки» в «Операции»
+  const [opsSearch, setOpsSearch] = useState<{ q: string; seq: number }>({
+    q: "",
+    seq: 0,
+  });
+
+  function openSearch(q: string) {
+    setOpsSearch((s) => ({ q, seq: s.seq + 1 }));
+    setTab("operations");
+  }
 
   // Текущий месяц и работа с localStorage — только на клиенте, чтобы
   // статически отрендеренный HTML не расходился с гидрацией.
@@ -29,45 +67,149 @@ export default function Home() {
 
   const showMonthSwitcher = tab === "summary" || tab === "operations";
 
+  // Спокойный экран загрузки
   if (!month) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-md items-center justify-center p-6 text-slate-400">
+      <main className="flex min-h-screen items-center justify-center text-[15px] text-label-3">
         Загрузка…
       </main>
     );
   }
 
+  const title = TABS.find((t) => t.id === tab)?.label ?? "Финансы";
+
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col">
-      <div className="flex-1 space-y-3 p-3 pb-24">
+    <main className="flex min-h-screen flex-col">
+      {/* ===== Десктоп: верхняя панель вкладок ===== */}
+      <header className="sticky top-0 z-20 hidden border-b border-[var(--separator)] bg-[var(--bg)]/80 backdrop-blur-xl md:block">
+        <div className="mx-auto flex h-14 max-w-5xl items-center gap-6 px-6">
+          <span className="text-[19px] font-bold tracking-tight">Финансы</span>
+          <nav className="flex items-center gap-1">
+            {TABS.map(({ id, label, Icon }) => {
+              const active = tab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTab(id)}
+                  className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-medium transition ${
+                    active
+                      ? "bg-brand text-white shadow-sm"
+                      : "text-label-2 hover:bg-black/[0.05] dark:hover:bg-white/[0.07]"
+                  }`}
+                >
+                  <Icon className="h-[18px] w-[18px]" />
+                  {label}
+                </button>
+              );
+            })}
+          </nav>
+          <div className="ml-auto flex items-center gap-2">
+            <SaveButton />
+            <SyncBadge />
+          </div>
+        </div>
+      </header>
+
+      {/* ===== Телефон: крупный заголовок iOS ===== */}
+      <header className="sticky top-0 z-10 bg-[var(--bg)]/80 px-4 pb-1 pt-3 backdrop-blur-xl md:hidden">
+        <div className="flex items-end justify-between">
+          <h1 className="text-[34px] font-bold leading-tight tracking-tight">
+            {title}
+          </h1>
+          <div className="flex items-center gap-2 pb-1.5">
+            <SaveButton />
+            <SyncBadge />
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto w-full max-w-md flex-1 space-y-4 px-4 pb-28 pt-1 md:max-w-5xl md:px-6 md:pb-12 md:pt-6">
+        {/* Десктоп: заголовок раздела */}
+        <h1 className="hidden text-[28px] font-bold leading-tight tracking-tight md:block">
+          {title}
+        </h1>
+
         {showMonthSwitcher && (
           <MonthSwitcher value={month} onChange={setMonth} />
         )}
 
-        {tab === "summary" && <Summary month={month} />}
-        {tab === "add" && (
-          <AddOperation onAdded={() => setTab("operations")} />
-        )}
-        {tab === "operations" && <Operations month={month} />}
-        {tab === "settings" && <Settings />}
+        <div key={tab} className="animate-fadein space-y-4">
+          {tab === "summary" && (
+            <Summary
+              month={month}
+              onSelectMonth={setMonth}
+              onOpenDebts={() => setTab("debts")}
+              onOpenCredits={() => setTab("credits")}
+              onOpenSubscriptions={() => setTab("subscriptions")}
+              onOpenSearch={openSearch}
+            />
+          )}
+          {tab === "add" && (
+            <div className="md:mx-auto md:max-w-xl">
+              <AddOperation
+                onShowMonth={(m) => {
+                  setMonth(m);
+                  setTab("operations");
+                }}
+              />
+            </div>
+          )}
+          {tab === "operations" && (
+            <div className="md:mx-auto md:max-w-4xl">
+              <Operations month={month} search={opsSearch} />
+            </div>
+          )}
+          {tab === "debts" && (
+            <div className="md:mx-auto md:max-w-4xl">
+              <Debts />
+            </div>
+          )}
+          {tab === "credits" && (
+            <div className="md:mx-auto md:max-w-3xl">
+              <Credits />
+            </div>
+          )}
+          {tab === "subscriptions" && (
+            <div className="md:mx-auto md:max-w-2xl">
+              <Subscriptions />
+            </div>
+          )}
+          {tab === "settings" && (
+            <div className="md:mx-auto md:max-w-2xl">
+              <Settings />
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Нижняя навигация */}
-      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-md">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-xs ${
-                tab === t.id ? "text-brand" : "text-slate-400"
-              }`}
-            >
-              <span className="text-xl leading-none">{t.icon}</span>
-              <span className="font-medium">{t.label}</span>
-            </button>
-          ))}
+      {/* ===== Телефон: нижняя панель вкладок ===== */}
+      <nav className="fixed inset-x-0 bottom-0 z-10 border-t border-[var(--separator)] bg-[var(--card)]/85 backdrop-blur-xl md:hidden">
+        <div className="mx-auto flex max-w-md px-0.5 pb-[env(safe-area-inset-bottom)]">
+          {TABS.map(({ id, label, Icon }) => {
+            const active = tab === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setTab(id)}
+                aria-label={label}
+                aria-current={active ? "page" : undefined}
+                className={`flex min-w-0 flex-1 flex-col items-center gap-1 pb-1.5 pt-2 transition-colors ${
+                  active ? "text-brand" : "text-slate-400 dark:text-slate-500"
+                }`}
+              >
+                <Icon className="h-[23px] w-[23px]" />
+                <span
+                  className={`w-full truncate text-center text-[9.5px] leading-none tracking-tight ${
+                    active ? "font-semibold" : "font-medium"
+                  }`}
+                >
+                  {label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </nav>
     </main>

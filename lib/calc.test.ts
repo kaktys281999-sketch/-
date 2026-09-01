@@ -1,0 +1,808 @@
+// Тесты денежных расчётов. Запуск: npm test
+// Без фреймворка — простой набор проверок, падает с кодом 1 при ошибке.
+import {
+  operationDelta,
+  operationAccountDelta,
+  debtAccountDelta,
+  creditAccountDelta,
+  transferAccountDelta,
+  currentBalance,
+  totalOnHand,
+  monthSummary,
+  creditInfo,
+  creditView,
+  debtOutstanding,
+  debtPaidTotal,
+  isDebtSettled,
+  debtsSummary,
+  realPosition,
+  dueRecurringOperations,
+  upcomingThisMonth,
+  paymentCalendar,
+  accountMonthFlow,
+  accountTrend,
+  subscriptionsMonthlyTotal,
+  isSubscriptionPaid,
+  subscriptionStatuses,
+  subscriptionsDue,
+  suggestSubscriptions,
+  expensePace,
+  categoryBudget,
+  notesBreakdown,
+  categoryNotesBreakdown,
+  creditCardDebt,
+  creditCardDueDate,
+  nextCreditCardDueDate,
+  creditCardLimit,
+  creditCardAvailable,
+  creditCardDebtTotal,
+} from "./calc";
+import { mergeStates } from "./sync";
+import { AppState, Operation, Debt, Credit, RecurringRule, Transfer } from "./types";
+
+let passed = 0;
+let failed = 0;
+function eq(actual: unknown, expected: unknown, msg: string) {
+  const a = JSON.stringify(actual);
+  const e = JSON.stringify(expected);
+  if (a === e) {
+    passed++;
+  } else {
+    failed++;
+    console.error(`✗ ${msg}\n    ожидалось: ${e}\n    получено:  ${a}`);
+  }
+}
+
+// ---- помощники для фикстур ----
+let n = 0;
+function op(p: Partial<Operation>): Operation {
+  return {
+    id: `o${n++}`,
+    date: "2026-05-10",
+    type: "expense_personal",
+    category: "Продукты / еда / вода",
+    amount: 0,
+    accountId: "sber",
+    note: "",
+    ...p,
+  };
+}
+function debt(p: Partial<Debt>): Debt {
+  return {
+    id: `d${n++}`,
+    direction: "owed_to_me",
+    person: "Кто-то",
+    amount: 0,
+    date: "2026-05-01",
+    accountId: "sber",
+    note: "",
+    payments: [],
+    ...p,
+  };
+}
+function state(p: Partial<AppState>): AppState {
+  return {
+    accounts: [
+      { id: "yandex", name: "Яндекс", baseBalance: 10000 },
+      { id: "sber", name: "Сбер", baseBalance: 5000 },
+      { id: "tinkoff", name: "Т-Банк", baseBalance: 0 },
+    ],
+    operations: [],
+    credits: [],
+    goal: { name: "", target: 0, saved: 0 },
+    debts: [],
+    updatedAt: 0,
+    ...p,
+  };
+}
+
+function credit(p: Partial<Credit>): Credit {
+  return {
+    id: `c${n++}`,
+    name: "Кредит",
+    received: 0,
+    receivedDate: "2026-01-01",
+    payment: 0,
+    count: 0,
+    paymentDates: [],
+    accountId: "yandex",
+    payments: [],
+    ...p,
+  };
+}
+
+function transfer(p: Partial<Transfer>): Transfer {
+  return {
+    id: `t${n++}`,
+    date: "2026-05-10",
+    amount: 0,
+    fromAccountId: "sber",
+    toAccountId: "yandex",
+    note: "",
+    ...p,
+  };
+}
+
+// ---- operationDelta ----
+eq(operationDelta(op({ type: "income", category: "Прочий доход", amount: 100 })), 100, "доход +");
+eq(operationDelta(op({ type: "expense_personal", amount: 100 })), -100, "расход личный −");
+eq(operationDelta(op({ type: "expense_personal", category: "Рестораны и кафе", amount: 100 })), -100, "Рестораны и кафе — расход −");
+eq(operationDelta(op({ type: "expense_work", amount: 100 })), -100, "расход рабочий −");
+eq(operationDelta(op({ type: "credit_loan", category: "Получен кредит", amount: 100 })), 100, "получен кредит +");
+eq(operationDelta(op({ type: "credit_loan", category: "Платёж по кредиту", amount: 100 })), -100, "платёж по кредиту −");
+
+// ---- debtAccountDelta ----
+const dGive = debt({ direction: "owed_to_me", accountId: "sber", amount: 1500 });
+eq(debtAccountDelta(dGive, "sber"), -1500, "дал в долг: со счёта ушло");
+eq(debtAccountDelta(dGive, "yandex"), 0, "чужой счёт не задет");
+const dGivePaid = debt({
+  direction: "owed_to_me",
+  accountId: "sber",
+  amount: 1500,
+  payments: [{ id: "p1", date: "2026-05-20", amount: 500, accountId: "yandex" }],
+});
+eq(debtAccountDelta(dGivePaid, "yandex"), 500, "возврат пришёл на другой счёт");
+eq(debtAccountDelta(dGivePaid, "sber"), -1500, "исходный счёт остаётся в минусе до возврата на него");
+const dOwe = debt({ direction: "i_owe", accountId: "tinkoff", amount: 2000 });
+eq(debtAccountDelta(dOwe, "tinkoff"), 2000, "взял в долг: на счёт пришло");
+
+// ---- debtOutstanding / paid / settled ----
+eq(debtOutstanding(dGivePaid), 1000, "остаток долга 1500−500");
+eq(debtPaidTotal(dGivePaid), 500, "возвращено 500");
+eq(isDebtSettled(dGivePaid), false, "ещё не погашен");
+const dOver = debt({ amount: 1000, payments: [{ id: "p", date: "2026-05-02", amount: 1200, accountId: "sber" }] });
+eq(debtOutstanding(dOver), 0, "переплата не уходит в минус");
+eq(isDebtSettled(dOver), true, "переплата = погашен");
+
+// ---- currentBalance / totalOnHand ----
+const s1 = state({
+  operations: [
+    op({ type: "income", category: "Прочий доход", amount: 2000, accountId: "sber" }),
+    op({ type: "expense_personal", amount: 700, accountId: "sber" }),
+    op({ type: "expense_personal", amount: 999, accountId: "sber", deleted: true }), // удалённая — игнор
+  ],
+  debts: [debt({ direction: "owed_to_me", accountId: "sber", amount: 1500 })],
+});
+eq(currentBalance(s1, "sber"), 5000 + 2000 - 700 - 1500, "баланс Сбера с учётом долга и без удалённой");
+eq(currentBalance(s1, "yandex"), 10000, "Яндекс без операций = база");
+eq(currentBalance(s1, "missing"), 0, "несуществующий счёт = 0");
+eq(totalOnHand(s1), 10000 + (5000 + 2000 - 700 - 1500) + 0, "на руках = сумма счетов");
+
+const onHandRegularOps = state({
+  operations: [
+    op({ type: "income", category: "Прочий доход", amount: 1200, accountId: "sber" }),
+    op({ type: "expense_personal", amount: 450, accountId: "sber" }),
+    op({ type: "expense_work", category: "Profi", amount: 300, accountId: "yandex" }),
+  ],
+});
+eq(
+  totalOnHand(onHandRegularOps),
+  10000 - 300 + 5000 + 1200 - 450,
+  "обычные операции меняют «на руках»"
+);
+
+// ---- debtsSummary (удалённые игнорируются) ----
+const s2 = state({
+  debts: [
+    debt({ direction: "owed_to_me", amount: 1500 }),
+    debt({ direction: "owed_to_me", amount: 500, payments: [{ id: "p", date: "2026-05-03", amount: 200, accountId: "sber" }] }),
+    debt({ direction: "i_owe", amount: 800 }),
+    debt({ direction: "i_owe", amount: 9999, deleted: true }),
+  ],
+});
+eq(debtsSummary(s2), { owedToMe: 1800, iOwe: 800, net: 1000 }, "сводка долгов");
+
+// ---- monthSummary (кредиты/займы и другие месяцы не входят) ----
+const s3 = state({
+  operations: [
+    op({ type: "income", category: "Прочий доход", amount: 3000, date: "2026-05-05" }),
+    op({ type: "expense_personal", amount: 1000, date: "2026-05-06" }),
+    op({ type: "credit_loan", category: "Получен кредит", amount: 50000, date: "2026-05-07" }),
+    op({ type: "expense_personal", amount: 4444, date: "2026-04-30" }), // другой месяц
+  ],
+});
+eq(monthSummary(s3, "2026-05"), { income: 3000, expense: 1000, diff: 2000 }, "итоги мая");
+eq(monthSummary(s3, "2026-04"), { income: 0, expense: 4444, diff: -4444 }, "итоги апреля");
+
+// ---- creditView (один кредит: остаток, X из N, следующая дата) ----
+const c1 = credit({
+  received: 45000,
+  payment: 5000,
+  count: 10,
+  paymentDates: ["2026-02-01", "2026-03-01", "2026-04-01"],
+  payments: [{ id: "p1", date: "2026-02-01", amount: 5000, accountId: "yandex" }],
+});
+const cv = creditView(c1);
+eq([cv.totalDue, cv.paid, cv.remaining, cv.overpay], [50000, 5000, 45000, 5000], "кредит: всего/выплачено/остаток/переплата");
+eq([cv.paidCount, cv.nextPaymentDate], [1, "2026-03-01"], "1 из 10, следующая дата");
+const cPaidOff = credit({ payment: 1000, count: 2, payments: [
+  { id: "a", date: "2026-01-01", amount: 1000, accountId: "yandex" },
+  { id: "b", date: "2026-02-01", amount: 1000, accountId: "yandex" },
+] });
+eq([creditView(cPaidOff).remaining, creditView(cPaidOff).isPaidOff, creditView(cPaidOff).nextPaymentDate], [0, true, null], "погашенный кредит");
+
+// частичные платежи не отмечают кредит погашенным (баг из аудита)
+const cPartial = credit({ payment: 1000, count: 3, payments: [
+  { id: "a", date: "2026-01-01", amount: 500, accountId: "yandex" },
+  { id: "b", date: "2026-02-01", amount: 500, accountId: "yandex" },
+  { id: "c", date: "2026-03-01", amount: 500, accountId: "yandex" },
+] });
+const cvPartial = creditView(cPartial);
+eq([cvPartial.remaining, cvPartial.isPaidOff, cvPartial.paidCount], [1500, false, 1], "частичные платежи: не погашен, 1 из 3 по сумме");
+
+// ---- creditAccountDelta (платёж списывает со счёта) ----
+eq(creditAccountDelta(c1, "yandex"), -5000, "платёж по кредиту списан с Яндекса");
+eq(creditAccountDelta(c1, "sber"), 0, "чужой счёт не задет");
+const cReceived = credit({
+  received: 30000,
+  accountId: "sber",
+  receivedAffectsBalance: true,
+  payments: [{ id: "p", date: "2026-01-02", amount: 1000, accountId: "sber" }],
+});
+eq(creditAccountDelta(cReceived, "sber"), 29000, "новый кредит: тело начислено, платёж списан");
+const cOldReceived = credit({ received: 30000, accountId: "sber" });
+eq(creditAccountDelta(cOldReceived, "sber"), 0, "старый кредит без флага не начисляет тело повторно");
+
+// ---- transferAccountDelta ----
+const trPayCard = transfer({
+  amount: 4000,
+  fromAccountId: "sber",
+  toAccountId: "card",
+});
+eq(transferAccountDelta(trPayCard, "sber"), -4000, "перевод: источник уменьшается");
+eq(transferAccountDelta(trPayCard, "card"), 4000, "перевод: получатель увеличивается");
+eq(transferAccountDelta(trPayCard, "yandex"), 0, "перевод: чужой счёт не задет");
+eq(
+  operationAccountDelta(
+    op({
+      type: "transfer",
+      accountId: "sber",
+      toAccountId: "sber",
+      amount: 4000,
+      category: "",
+    }),
+    "sber"
+  ),
+  0,
+  "операция-самоперевод не влияет на баланс"
+);
+
+// ---- creditInfo (агрегат по нескольким кредитам) ----
+const s4 = state({
+  credits: [
+    credit({ received: 45000, payment: 5000, count: 10, paymentDates: ["2026-03-01"], payments: [{ id: "p", date: "2026-02-01", amount: 5000, accountId: "yandex" }] }),
+    credit({ received: 4000, payment: 1500, count: 3, paymentDates: ["2026-02-15"], payments: [] }),
+    credit({ payment: 9999, count: 9, deleted: true }), // надгробие — игнор
+  ],
+});
+const ci = creditInfo(s4);
+// totalDue = 50000 + 4500 = 54500; paid = 5000; remaining = 49500; overpay = 5000 + 500
+eq([ci.totalDue, ci.paid, ci.remaining, ci.overpay], [54500, 5000, 49500, 5500], "агрегат кредитов");
+eq(ci.nextPaymentDate, "2026-02-15", "ближайший платёж — самая ранняя дата");
+
+// ---- realPosition (полный сценарий: кредит + долг) ----
+const s5 = state({
+  credits: [credit({ received: 45000, payment: 5000, count: 10, accountId: "yandex", paymentDates: ["2026-02-01"], payments: [{ id: "p", date: "2026-02-01", amount: 5000, accountId: "yandex" }] })],
+  debts: [debt({ direction: "owed_to_me", accountId: "sber", amount: 1500 })],
+});
+// на руках: (10000 − 5000 платёж) + (5000 − 1500 долг) + 0 = 8500
+// реальная = 8500 − 45000(остаток кредита) + 1500(вернут) − 0
+eq(totalOnHand(s5), 8500, "на руках в сценарии с кредитом");
+eq(realPosition(s5), 8500 - 45000 + 1500, "реальная позиция");
+
+// ---- dueRecurringOperations ----
+function rule(p: Partial<RecurringRule>): RecurringRule {
+  return {
+    id: "r1",
+    title: "Аренда",
+    type: "expense_personal",
+    category: "Остальное / разное",
+    amount: 20000,
+    accountId: "yandex",
+    dayOfMonth: 5,
+    startMonth: "2026-04",
+    note: "",
+    active: true,
+    ...p,
+  };
+}
+// с апреля по июнь, сегодня 10 июня → апр, май, июнь (5-е уже наступило)
+const due1 = dueRecurringOperations([rule({})], new Set(), "2026-06", "2026-06-10");
+eq(due1.map((o) => o.id), ["rec-r1-2026-04", "rec-r1-2026-05", "rec-r1-2026-06"], "генерация апр–июн");
+eq([due1[0].date, due1[0].amount, due1[0].recurringId], ["2026-04-05", 20000, "r1"], "поля сгенерированной операции");
+
+// если 5-е ещё не наступило в текущем месяце — июнь не создаём
+const due2 = dueRecurringOperations([rule({})], new Set(), "2026-06", "2026-06-03");
+eq(due2.map((o) => o.id), ["rec-r1-2026-04", "rec-r1-2026-05"], "будущая дата месяца пропускается");
+
+// уже существующие/удалённые id не пересоздаются
+const due3 = dueRecurringOperations([rule({})], new Set(["rec-r1-2026-04", "rec-r1-2026-05"]), "2026-06", "2026-06-10");
+eq(due3.map((o) => o.id), ["rec-r1-2026-06"], "без дублей по существующим id");
+
+// выключенное/удалённое правило ничего не создаёт
+eq(dueRecurringOperations([rule({ active: false })], new Set(), "2026-06", "2026-06-10").length, 0, "выключенное правило");
+eq(dueRecurringOperations([rule({ deleted: true })], new Set(), "2026-06", "2026-06-10").length, 0, "удалённое правило");
+
+// обрезка числа под короткий месяц (31 → 28 февраля)
+const dueFeb = dueRecurringOperations([rule({ dayOfMonth: 31, startMonth: "2026-02" })], new Set(), "2026-02", "2026-02-28");
+eq(dueFeb[0].date, "2026-02-28", "31-е число обрезано до конца февраля");
+
+// ---- upcomingThisMonth ----
+const su = state({
+  recurring: [
+    rule({ id: "rA", title: "Аренда", dayOfMonth: 25, startMonth: "2026-01", amount: 20000 }),
+    rule({ id: "rB", title: "Зарплата", type: "income", category: "Прочий доход", dayOfMonth: 28, startMonth: "2026-01", amount: 50000 }),
+    rule({ id: "rPast", dayOfMonth: 3, startMonth: "2026-01", amount: 999 }), // 3-е уже прошло
+  ],
+  operations: [],
+  credits: [credit({ name: "Альфа", payment: 10921, count: 3, paymentDates: ["2026-06-26"], payments: [] })],
+});
+const up = upcomingThisMonth(su, "2026-06", "2026-06-10");
+// порядок по дате: Аренда 25, Платёж 26, Зарплата 28
+eq(up.map((u) => u.title), ["Аренда", "Платёж по «Альфа»", "Зарплата"], "предстоящие по дате: 25, 26, 28");
+eq(up.map((u) => u.sign), [-1, -1, 1], "знаки: расход, кредит, доход");
+// прошедшее 3-е число не входит; нетто = -20000 -10921 +50000
+eq(up.reduce((s, u) => s + u.sign * u.amount, 0), 50000 - 20000 - 10921, "нетто предстоящих");
+// уже созданная операция этого месяца исключается
+const su2 = state({
+  recurring: [rule({ id: "rA", dayOfMonth: 25, startMonth: "2026-01" })],
+  operations: [op({ id: "rec-rA-2026-06" })],
+});
+eq(upcomingThisMonth(su2, "2026-06", "2026-06-10").length, 0, "созданная регулярная не предстоит");
+
+// ---- paymentCalendar ----
+const paymentsCalendarState = state({
+  accounts: [
+    { id: "yandex", name: "Яндекс", baseBalance: 10000 },
+    {
+      id: "card",
+      name: "Сплит",
+      baseBalance: -5500,
+      kind: "credit_card",
+      creditPaymentDay: 2,
+    },
+  ],
+  recurring: [
+    rule({ id: "sub1", kind: "subscription", title: "Музыка", amount: 500, dayOfMonth: 5, startMonth: "2026-01" }),
+    rule({ id: "subPaid", kind: "subscription", title: "Облако", amount: 700, dayOfMonth: 6, startMonth: "2026-01" }),
+    rule({ id: "rent", title: "Аренда", amount: 20000, dayOfMonth: 10, startMonth: "2026-01" }),
+    rule({ id: "salary", title: "Зарплата", type: "income", category: "Прочий доход", amount: 50000, dayOfMonth: 20, startMonth: "2026-01" }),
+    rule({ id: "move", title: "Переложить", type: "transfer", category: "", amount: 1000, dayOfMonth: 22, startMonth: "2026-01" }),
+  ],
+  operations: [op({ id: "rec-subPaid-2026-08", recurringId: "subPaid", amount: 700, date: "2026-08-06" })],
+  credits: [
+    credit({
+      id: "creditA",
+      name: "Альфа",
+      payment: 1000,
+      count: 2,
+      paymentDates: ["2026-08-15", "2026-09-15"],
+      payments: [{ id: "cp1", date: "2026-08-01", amount: 300, accountId: "yandex" }],
+    }),
+  ],
+  debts: [
+    debt({ id: "owe1", direction: "i_owe", person: "Боря", amount: 3000, dueDate: "2026-08-20" }),
+    debt({ id: "me1", direction: "owed_to_me", person: "Ира", amount: 2000, dueDate: "2026-08-21" }),
+  ],
+});
+const payCal = paymentCalendar(paymentsCalendarState, "2026-08", "2026-07-09");
+eq(
+  payCal.map((p) => [p.date, p.kind, p.title, p.amount, Boolean(p.paid), Boolean(p.manualAmount)]),
+  [
+    ["2026-08-02", "credit_card", "Оплата кредитки «Сплит»", 5500, false, true],
+    ["2026-08-05", "subscription", "Подписка «Музыка»", 500, false, false],
+    ["2026-08-06", "subscription", "Подписка «Облако»", 700, true, false],
+    ["2026-08-10", "recurring", "Аренда", 20000, false, false],
+    ["2026-08-15", "credit", "Платёж по «Альфа»", 700, false, false],
+    ["2026-08-20", "debt", "Долг «Боря»", 3000, false, false],
+  ],
+  "календарь оплат собирает обязательства месяца"
+);
+eq(
+  paymentCalendar(paymentsCalendarState, "2026-07", "2026-07-09").some(
+    (p) => p.kind === "credit_card"
+  ),
+  false,
+  "календарь оплат не показывает прошедшую дату кредитки в текущем месяце"
+);
+
+// ---- accountMonthFlow ----
+const sf = state({
+  operations: [
+    op({ type: "income", category: "Прочий доход", amount: 5000, accountId: "sber", date: "2026-06-02" }),
+    op({ type: "expense_personal", amount: 700, accountId: "sber", date: "2026-06-03" }),
+    op({ type: "expense_personal", amount: 300, accountId: "sber", date: "2026-06-04", deleted: true }),
+    op({ type: "expense_personal", amount: 1000, accountId: "yandex", date: "2026-06-05" }),
+    op({ type: "expense_personal", amount: 999, accountId: "sber", date: "2026-05-30" }), // другой месяц
+  ],
+  transfers: [
+    transfer({ amount: 3000, fromAccountId: "sber", toAccountId: "yandex", date: "2026-06-07" }),
+  ],
+});
+eq(accountMonthFlow(sf, "sber", "2026-06"), { income: 5000, expense: 3700, net: 1300 }, "обороты Сбера за июнь с переводом");
+eq(accountMonthFlow(sf, "yandex", "2026-06"), { income: 3000, expense: 1000, net: 2000 }, "обороты Яндекса за июнь с переводом");
+eq(accountMonthFlow(sf, "tinkoff", "2026-06"), { income: 0, expense: 0, net: 0 }, "нет оборотов");
+
+// ---- credit card account ----
+const sCard = state({
+  accounts: [
+    { id: "sber", name: "Сбер", baseBalance: 10000 },
+    { id: "card", name: "Кредитка", baseBalance: 0, kind: "credit_card", creditPaymentDay: 31, creditLimit: 10000 },
+  ],
+  operations: [
+    op({ accountId: "card", amount: 2500, date: "2026-06-05" }),
+  ],
+  transfers: [
+    transfer({ amount: 1000, fromAccountId: "sber", toAccountId: "card", date: "2026-06-10" }),
+  ],
+});
+eq(currentBalance(sCard, "card"), -1500, "кредитка: трата увеличила долг, перевод уменьшил");
+eq(creditCardDebt(sCard, "card"), 1500, "долг по кредитке = отрицательный баланс по модулю");
+eq(creditCardLimit(sCard.accounts[1]), 10000, "кредитка: лимит хранится отдельно");
+eq(creditCardAvailable(sCard, "card"), 8500, "кредитка: доступно = лимит − долг");
+eq(creditCardDebtTotal(sCard), 1500, "кредитка: общий долг по кредиткам");
+eq(totalOnHand(sCard), 9000, "кредитка: на руках считаются только обычные счета");
+eq(realPosition(sCard), 7500, "кредитка: реальная позиция учитывает долг по карте");
+eq(
+  totalOnHand(
+    state({
+      accounts: [
+        { id: "sber", name: "Сбер", baseBalance: 10000 },
+        { id: "card", name: "Кредитка", baseBalance: 0, kind: "credit_card", creditLimit: 10000 },
+      ],
+      operations: [op({ accountId: "card", amount: 2500 })],
+    })
+  ),
+  10000,
+  "трата с кредитки не меняет «на руках», меняет долг по карте"
+);
+eq(creditCardDueDate(sCard.accounts[1], "2026-02"), "2026-02-28", "день оплаты кредитки обрезается под месяц");
+eq(
+  nextCreditCardDueDate(
+    { ...sCard.accounts[1], creditPaymentDay: 2 },
+    "2026-07-04"
+  ),
+  "2026-08-02",
+  "кредитка: прошедшее число оплаты переносится на следующий месяц"
+);
+eq(
+  nextCreditCardDueDate(
+    { ...sCard.accounts[1], creditPaymentDay: 2 },
+    "2026-08-02"
+  ),
+  "2026-08-02",
+  "кредитка: в день оплаты напоминание остаётся на сегодня"
+);
+
+const sCardOverLimit = state({
+  accounts: [
+    { id: "card", name: "Кредитка", baseBalance: -12000, kind: "credit_card", creditLimit: 10000 },
+  ],
+});
+eq(creditCardAvailable(sCardOverLimit, "card"), -2000, "кредитка: доступный лимит может уйти ниже нуля");
+
+// ---- accountTrend ----
+const st6 = state({
+  operations: [
+    op({ type: "income", category: "Прочий доход", amount: 1000, accountId: "sber", date: "2026-04-10" }),
+    op({ type: "expense_personal", amount: 400, accountId: "sber", date: "2026-05-10" }),
+    op({ type: "income", category: "Прочий доход", amount: 700, accountId: "sber", date: "2026-06-10" }),
+  ],
+});
+const tr = accountTrend(st6, "sber", "2026-06", 6);
+eq(tr.map((p) => p.month), ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"], "6 месяцев по порядку");
+eq(tr.map((p) => p.net), [0, 0, 0, 1000, -400, 700], "чистый оборот по месяцам");
+
+// ---- подписки ----
+const sub = (p: Partial<RecurringRule>) =>
+  rule({ kind: "subscription", ...p });
+
+// подписки не списываются автоматически
+eq(
+  dueRecurringOperations([sub({ id: "s1", startMonth: "2026-04" })], new Set(), "2026-06", "2026-06-10").length,
+  0,
+  "подписка не авто-списывается"
+);
+
+// сумма в месяц по включённым
+const ssub = state({
+  recurring: [
+    sub({ id: "s1", amount: 500, dayOfMonth: 5 }),
+    sub({ id: "s2", amount: 1500, dayOfMonth: 20 }),
+    sub({ id: "s3", amount: 999, dayOfMonth: 1, active: false }), // выключена
+  ],
+});
+eq(subscriptionsMonthlyTotal(ssub), 2000, "сумма подписок в месяц (без выключенной)");
+
+// статусы: due (5-е прошло, не оплачено), upcoming (20-е впереди)
+const st = subscriptionStatuses(ssub, "2026-06", "2026-06-10");
+eq([st[0].due, st[0].upcoming, st[0].paid], [true, false, false], "s1 — пора оплатить");
+eq([st[1].due, st[1].upcoming, st[1].paid], [false, true, false], "s2 — предстоит");
+
+// оплата фиксируется операцией с детерминированным id
+const sPaid = state({
+  recurring: [sub({ id: "s1", amount: 500, dayOfMonth: 5 })],
+  operations: [op({ id: "rec-s1-2026-06", recurringId: "s1", amount: 500, date: "2026-06-05" })],
+});
+eq(isSubscriptionPaid(sPaid, "s1", "2026-06"), true, "оплачено в этом месяце");
+eq(subscriptionStatuses(sPaid, "2026-06", "2026-06-10")[0].paid, true, "статус оплачено");
+
+// автоопределение: одинаковая сумма в 2 месяцах → предложение
+const sSugg = state({
+  operations: [
+    op({ category: "Мобильный / подписки", amount: 500, date: "2026-05-12", note: "Netflix" }),
+    op({ category: "Мобильный / подписки", amount: 500, date: "2026-06-12", note: "Netflix" }),
+    op({ category: "Продукты / еда / вода", amount: 700, date: "2026-05-03" }),
+    op({ category: "Продукты / еда / вода", amount: 900, date: "2026-06-03" }), // суммы разные → не подписка
+  ],
+});
+const sugg = suggestSubscriptions(sSugg);
+eq(sugg.length, 1, "одно предложение");
+eq([sugg[0].note, sugg[0].amount, sugg[0].dayOfMonth, sugg[0].months], ["Netflix", 500, 12, 2], "предложение Netflix");
+
+// ---- expensePace ----
+const sp = state({
+  operations: [
+    op({ type: "expense_personal", amount: 3000, date: "2026-06-10" }),
+  ],
+});
+// текущий месяц, сегодня 15 июня: прошло 15 из 30, средний 200/день, прогноз 6000
+const pace = expensePace(sp, "2026-06", "2026-06-15");
+eq([pace.daysElapsed, pace.daysInMonth, pace.avgDaily, pace.projected], [15, 30, 200, 6000], "темп расходов (текущий месяц)");
+// прошлый месяц: прогноз = факт
+const pacePast = expensePace(sp, "2026-05", "2026-06-15");
+eq(pacePast.projected, 0, "прошлый месяц — прогноз равен факту");
+
+// ---- categoryBudget (перенос за один месяц) ----
+const CAT = "Продукты / еда / вода";
+const bd = (extra: Partial<AppState>) =>
+  state({
+    budgets: { [CAT]: 15000 },
+    operations: [
+      op({ category: CAT, amount: 12000, date: "2026-05-20" }), // прошлый месяц
+      op({ category: CAT, amount: 4000, date: "2026-06-10" }), // текущий
+    ],
+    ...extra,
+  });
+
+// без переноса: лимит 15000, потрачено 4000, осталось 11000
+const bNo = categoryBudget(bd({ budgetRollover: false }), CAT, "2026-06");
+eq([bNo.base, bNo.carry, bNo.effective, bNo.spent, bNo.remaining], [15000, 0, 15000, 4000, 11000], "бюджет без переноса");
+
+// с переносом: остаток мая 3000 → доступно 18000, осталось 14000
+const bYes = categoryBudget(bd({ budgetRollover: true }), CAT, "2026-06");
+eq([bYes.carry, bYes.effective, bYes.remaining], [3000, 18000, 14000], "перенос остатка +3000");
+
+// перерасход в прошлом месяце уменьшает лимит
+const bOver = categoryBudget(
+  state({
+    budgetRollover: true,
+    budgets: { [CAT]: 15000 },
+    operations: [
+      op({ category: CAT, amount: 17000, date: "2026-05-20" }),
+      op({ category: CAT, amount: 1000, date: "2026-06-10" }),
+    ],
+  }),
+  CAT,
+  "2026-06"
+);
+eq([bOver.carry, bOver.effective, bOver.remaining], [-2000, 13000, 12000], "перерасход переносится в минус");
+
+// ---- mergeStates: счёт, добавленный на «старом» устройстве, не теряется ----
+const local = state({
+  updatedAt: 100,
+  accounts: [
+    { id: "yandex", name: "Яндекс", baseBalance: 10000 },
+    { id: "cash", name: "Наличные", baseBalance: 500 }, // добавлен локально
+  ],
+});
+const remote = state({
+  updatedAt: 200, // «свежее» — выиграет по балансам
+  accounts: [
+    { id: "yandex", name: "Яндекс", baseBalance: 12345 },
+    { id: "newphone", name: "Тинькофф", baseBalance: 700 }, // добавлен на другом
+  ],
+});
+const merged = mergeStates(local, remote);
+const mIds = merged.accounts.map((a) => a.id).sort();
+eq(mIds, ["cash", "newphone", "yandex"], "слияние счетов объединяет все id");
+eq(merged.accounts.find((a) => a.id === "yandex")!.baseBalance, 12345, "по общему счёту выигрывает свежий документ");
+
+const localDeletedAccount = state({
+  updatedAt: 300,
+  accounts: [{ id: "yandex", name: "Яндекс", baseBalance: 10000 }],
+  primaryAccountId: "cash",
+  deletedAccountIds: { cash: 300 },
+});
+const remoteWithOldAccount = state({
+  updatedAt: 200,
+  accounts: [
+    { id: "yandex", name: "Яндекс", baseBalance: 10000 },
+    { id: "cash", name: "Наличные", baseBalance: 500 },
+  ],
+});
+const mergedDeletedAccount = mergeStates(localDeletedAccount, remoteWithOldAccount);
+eq(
+  mergedDeletedAccount.accounts.some((a) => a.id === "cash"),
+  false,
+  "удалённый счёт не воскресает при слиянии со старым состоянием"
+);
+eq(
+  mergedDeletedAccount.deletedAccountIds?.cash,
+  300,
+  "надгробие удалённого счёта сохраняется при слиянии"
+);
+eq(
+  mergedDeletedAccount.primaryAccountId,
+  "yandex",
+  "основной счёт после слияния не указывает на удалённый id"
+);
+
+// ---- статистика по заметкам (Пятёрочка/Пятерочка группируются) ----
+const sNotes = state({
+  operations: [
+    op({ category: "Продукты / еда / вода", amount: 1000, date: "2026-06-02", note: "Пятёрочка" }),
+    op({ category: "Продукты / еда / вода", amount: 1500, date: "2026-06-10", note: "Пятерочка" }), // е вместо ё
+    op({ category: "Продукты / еда / вода", amount: 800, date: "2026-06-12", note: "Магнит" }),
+    op({ category: "Продукты / еда / вода", amount: 300, date: "2026-06-15", note: "" }), // без заметки
+    op({ type: "income", category: "Прочий доход", amount: 9999, date: "2026-06-03", note: "Пятёрочка" }), // доход не считаем
+  ],
+});
+const nb = notesBreakdown(sNotes, "2026-06");
+eq([nb[0].label, nb[0].total, nb[0].count], ["Пятёрочка", 2500, 2], "Пятёрочка: ё/е сгруппированы, 2500");
+eq(nb.map((n) => n.label), ["Пятёрочка", "Магнит"], "топ мест без пустых заметок");
+const cnb = categoryNotesBreakdown(sNotes, "Продукты / еда / вода", "2026-06");
+eq(cnb.find((n) => n.label === "(без заметки)")?.total, 300, "категория: бакет «без заметки»");
+eq(cnb.reduce((s, n) => s + n.total, 0), 3600, "сумма по заметкам = расход категории");
+
+// ---- интеграционные инварианты на «богатом» состоянии ----
+const rich = state({
+  accounts: [
+    { id: "yandex", name: "Я", baseBalance: 10000 },
+    { id: "sber", name: "С", baseBalance: 5000 },
+    { id: "cash", name: "Наличные", baseBalance: 0 },
+    { id: "card", name: "Кредитка", baseBalance: -3000, kind: "credit_card", creditLimit: 10000 },
+  ],
+  operations: [
+    op({ type: "income", category: "Прочий доход", amount: 50000, accountId: "yandex", date: "2026-06-02" }),
+    op({ type: "expense_personal", amount: 4000, accountId: "yandex", date: "2026-06-03" }),
+    op({ type: "expense_work", category: "Profi", amount: 2000, accountId: "sber", date: "2026-06-05" }),
+    op({ amount: 999, accountId: "cash", date: "2026-06-06", deleted: true }),
+  ],
+  credits: [credit({ payment: 10921, count: 3, accountId: "yandex", payments: [{ id: "p", date: "2026-06-26", amount: 10921, accountId: "yandex" }] })],
+  debts: [
+    debt({ direction: "owed_to_me", accountId: "sber", amount: 1500, payments: [{ id: "x", date: "2026-05-20", amount: 500, accountId: "yandex" }] }),
+    debt({ direction: "i_owe", accountId: "cash", amount: 2000 }),
+  ],
+});
+const regularBal = rich.accounts
+  .filter((a) => a.kind !== "credit_card")
+  .reduce((s, a) => s + currentBalance(rich, a.id), 0);
+eq(Math.round(regularBal), Math.round(totalOnHand(rich)), "инвариант: на руках = сумма обычных счетов");
+eq(
+  Math.round(realPosition(rich)),
+  Math.round(
+    totalOnHand(rich) -
+      creditInfo(rich).remaining -
+      creditCardDebtTotal(rich) +
+      debtsSummary(rich).owedToMe -
+      debtsSummary(rich).iOwe
+  ),
+  "инвариант: реальная позиция = формула"
+);
+const noNaN = [
+  totalOnHand(rich),
+  realPosition(rich),
+  ...rich.accounts.map((a) => currentBalance(rich, a.id)),
+  creditInfo(rich).remaining,
+  expensePace(rich, "2026-06", "2026-06-15").projected,
+].every((n) => Number.isFinite(n));
+eq(noNaN, true, "инвариант: нет NaN/∞ в ключевых числах");
+
+// ---- float-хвост: погашение не «застревает» из-за 0.1+0.2 ----
+const dustDebt = debt({
+  direction: "i_owe",
+  accountId: "cash",
+  amount: 0.9,
+  payments: [
+    { id: "d1", date: "2026-01-02", amount: 0.3, accountId: "cash" },
+    { id: "d2", date: "2026-01-03", amount: 0.3, accountId: "cash" },
+    { id: "d3", date: "2026-01-04", amount: 0.3, accountId: "cash" },
+  ],
+});
+eq(debtOutstanding(dustDebt), 0, "долг 0.9 тремя по 0.3 — остаток 0 (без float-хвоста)");
+eq(isDebtSettled(dustDebt), true, "долг 0.9 тремя по 0.3 — погашен");
+const partialCredit = credit({
+  payment: 100,
+  count: 3,
+  accountId: "yandex",
+  payments: [
+    { id: "c1", date: "2026-02-01", amount: 0.1, accountId: "yandex" },
+    { id: "c2", date: "2026-03-01", amount: 0.2, accountId: "yandex" },
+  ],
+});
+eq(creditView(partialCredit).remaining, 299.7, "остаток кредита округлён до копеек (300 − 0.1 − 0.2)");
+
+// ---- переводы между счетами ----
+const transferState = state({
+  operations: [
+    op({ type: "transfer", accountId: "sber", toAccountId: "tinkoff", amount: 1000, category: "", date: "2026-05-10" }),
+  ],
+});
+eq(currentBalance(transferState, "sber"), 4000, "перевод: со счёта-источника списалось (5000−1000)");
+eq(currentBalance(transferState, "tinkoff"), 1000, "перевод: на счёт-получатель пришло (0+1000)");
+eq(totalOnHand(transferState), 15000, "перевод: всего на руках не меняется");
+eq(monthSummary(transferState, "2026-05").income, 0, "перевод — не доход");
+eq(monthSummary(transferState, "2026-05").expense, 0, "перевод — не расход");
+
+
+// ---- подписки: граница месяца ----
+// Найдено 31.08.2026 на живых данных. У подписки хранится только число месяца,
+// и пока напоминание перебирало ЛИШЬ текущий месяц, подписка первых чисел не
+// могла попасть в окно предупреждения вообще: 31 августа сентябрьский
+// экземпляр не создавался нигде. «Квартира» 1-го числа, 22 000 рублей,
+// становилась видна ровно в день списания.
+// Старые тесты этого не ловили, потому что спрашивали про июнь, стоя в июне.
+const kv = (p: Partial<RecurringRule> = {}) =>
+  sub({ id: "kv", amount: 22000, dayOfMonth: 1, startMonth: "2026-01", ...p });
+
+// главный случай: август оплачен, стоим 31 августа, сентябрь через день
+const sBorder = state({
+  recurring: [kv()],
+  operations: [
+    op({ id: "rec-kv-2026-08", recurringId: "kv", amount: 22000, date: "2026-08-01" }),
+  ],
+});
+const dueBorder = subscriptionsDue(sBorder, "2026-08-31", 7);
+eq(dueBorder.length, 1, "граница месяца: сентябрьская подписка видна 31 августа");
+eq(dueBorder[0]?.date ?? "ничего не вернулось", "2026-09-01", "граница месяца: дата экземпляра сентябрьская");
+eq(dueBorder[0]?.month ?? "ничего не вернулось", "2026-09", "граница месяца: оплата уйдёт в сентябрь, не в август");
+eq(dueBorder[0]?.overdue ?? "ничего не вернулось", false, "граница месяца: это предстоящее, а не просрочка");
+
+// в середине месяца оплаченная молчит, а следующая ещё далеко
+eq(
+  subscriptionsDue(sBorder, "2026-08-10", 7).length,
+  0,
+  "граница месяца: в середине августа тишина, и это правда"
+);
+
+// просроченное не исчезает, сколько бы ни прошло, и не вытесняется будущим
+const dueBoth = subscriptionsDue(state({ recurring: [kv()] }), "2026-08-31", 7);
+eq(dueBoth.length, 2, "неоплаченный август и близкий сентябрь показываются ОБА");
+eq([dueBoth[0]?.month, dueBoth[0]?.overdue], ["2026-08", true], "август просрочен");
+eq([dueBoth[1]?.month, dueBoth[1]?.overdue], ["2026-09", false], "сентябрь предстоит");
+
+// окно соблюдается с обеих сторон
+const sWin = state({
+  recurring: [sub({ id: "w", amount: 100, dayOfMonth: 8, startMonth: "2026-01" })],
+  operations: [
+    op({ id: "rec-w-2026-07", recurringId: "w", amount: 100, date: "2026-07-08" }),
+  ],
+});
+eq(subscriptionsDue(sWin, "2026-07-31", 7).length, 0, "окно: 8 дней вперёд это уже далеко");
+eq(subscriptionsDue(sWin, "2026-08-01", 7).length, 1, "окно: ровно 7 дней вперёд ещё близко");
+
+// короткий месяц не рождает несуществующую дату
+const clamp = subscriptionsDue(
+  state({ recurring: [sub({ id: "c", amount: 300, dayOfMonth: 31, startMonth: "2026-01" })] }),
+  "2026-09-25",
+  7
+);
+eq(clamp.length, 1, "короткий месяц: один экземпляр");
+eq(clamp[0]?.date ?? "ничего не вернулось", "2026-09-30", "короткий месяц: 31-е становится 30-м, а не пропадает");
+
+// выключенная и ещё не начавшаяся молчат
+eq(
+  subscriptionsDue(state({ recurring: [kv({ id: "off", active: false })] }), "2026-08-31", 7).length,
+  0,
+  "выключенная подписка о себе не напоминает"
+);
+eq(
+  subscriptionsDue(state({ recurring: [kv({ id: "later", startMonth: "2026-10" })] }), "2026-08-31", 7).length,
+  0,
+  "ещё не начавшаяся подписка о себе не напоминает"
+);
+
+// ---- итог ----
+console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);
+if (failed > 0) process.exit(1);

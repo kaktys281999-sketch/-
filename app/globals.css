@@ -3,7 +3,36 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
+  /* iOS system grouped backgrounds */
+  --bg: #f2f2f7;
+  --card: #ffffff;
+  --separator: rgba(60, 60, 67, 0.12);
+  --label-2: rgba(60, 60, 67, 0.6);
+  --label-3: rgba(60, 60, 67, 0.3);
+}
+
+.dark {
+  --bg: #000000;
+  --card: #1c1c1e;
+  --separator: rgba(84, 84, 88, 0.4);
+  --label-2: rgba(235, 235, 245, 0.6);
+  --label-3: rgba(235, 235, 245, 0.3);
+}
+
+/* На десктопе тёмная тема — «оконные» серые macOS вместо чистого чёрного,
+   с тонкой границей у карточек для разделения панелей. */
+@media (min-width: 768px) {
+  .dark {
+    --bg: #1c1c1e;
+    --card: #2c2c2e;
+    --separator: rgba(255, 255, 255, 0.1);
+    --label-2: rgba(235, 235, 245, 0.62);
+    --label-3: rgba(235, 235, 245, 0.32);
+  }
+  .dark .ios-card {
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
 }
 
 html,
@@ -12,8 +41,13 @@ body {
 }
 
 body {
-  @apply bg-slate-100 text-slate-900 antialiased;
+  background: var(--bg);
+  @apply text-slate-900 antialiased dark:text-slate-100;
+  /* Системный шрифт Apple (SF Pro), с запасными. */
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    system-ui, "Segoe UI", Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
+  letter-spacing: -0.01em;
 }
 
 /* Удобный ввод на телефоне — без зума на iOS */
@@ -21,4 +55,54 @@ input,
 select,
 textarea {
   font-size: 16px;
+}
+
+/* Убираем стрелочки-спиннеры у числовых полей */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+@layer utilities {
+  .animate-fadein {
+    animation: fadein 0.22s ease-out both;
+  }
+  /* iOS grouped card */
+  .ios-card {
+    background: var(--card);
+    border-radius: 16px;
+  }
+  .ios-separator {
+    border-color: var(--separator);
+  }
+  .text-label-2 {
+    color: var(--label-2);
+  }
+  .text-label-3 {
+    color: var(--label-3);
+  }
+}
+
+@keyframes fadein {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Плавное нажатие в стиле iOS */
+button {
+  transition: transform 0.08s ease, opacity 0.15s ease;
+}
+button:active {
+  transform: scale(0.97);
 }

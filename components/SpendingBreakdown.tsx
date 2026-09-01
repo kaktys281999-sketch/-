@@ -1,0 +1,181 @@
+"use client";
+
+import { useState } from "react";
+import { AppState } from "@/lib/types";
+import { monthKeyFromISO, formatMoney } from "@/lib/format";
+import { categoryBudget, categoryNotesBreakdown } from "@/lib/store";
+import { Card } from "./ui";
+
+// Расходы по категориям за месяц (личное + рабочее)
+function expensesByCategory(state: AppState, month: string) {
+  const map = new Map<string, number>();
+  for (const op of state.operations) {
+    if (op.deleted) continue;
+    if (monthKeyFromISO(op.date) !== month) continue;
+    if (op.type !== "expense_personal" && op.type !== "expense_work") continue;
+    map.set(op.category, (map.get(op.category) ?? 0) + op.amount);
+  }
+  const rows = Array.from(map.entries())
+    .map(([category, amount]) => ({ category, amount }))
+    .sort((a, b) => b.amount - a.amount);
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  return { rows, total };
+}
+
+export function SpendingBreakdown({
+  state,
+  month,
+  onOpenNote,
+}: {
+  state: AppState;
+  month: string;
+  onOpenNote?: (note: string) => void;
+}) {
+  const { rows, total } = expensesByCategory(state, month);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  return (
+    <div>
+      <div className="mb-1.5 flex items-center justify-between px-1">
+        <span className="text-[13px] font-medium uppercase tracking-wide text-label-2">
+          Расходы по категориям
+        </span>
+        {total > 0 && (
+          <span className="text-[13px] font-semibold text-label-2">
+            {formatMoney(total)}
+          </span>
+        )}
+      </div>
+      <Card>
+      {rows.length === 0 ? (
+        <p className="py-3 text-center text-sm text-label-3">
+          Расходов в этом месяце пока нет
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {rows.map((r, i) => {
+            const b = categoryBudget(state, r.category, month);
+            const hasBudget = b.base > 0;
+            const over = hasBudget && b.spent > b.effective;
+            // ширина: к доступному лимиту (если задан) иначе доля от общих расходов
+            const fill = hasBudget
+              ? Math.min(100, b.effective > 0 ? (b.spent / b.effective) * 100 : 100)
+              : total > 0
+              ? (r.amount / total) * 100
+              : 0;
+            const isOpen = expanded === r.category;
+            return (
+              <div key={r.category}>
+                <button
+                  type="button"
+                  onClick={() => setExpanded(isOpen ? null : r.category)}
+                  className="mb-1 flex w-full items-center justify-between text-sm"
+                >
+                  <span className="flex min-w-0 items-center gap-1 pr-2 text-slate-700 dark:text-slate-200">
+                    <span className="text-[11px] text-label-3">
+                      {isOpen ? "▾" : "▸"}
+                    </span>
+                    <span className="truncate">{r.category}</span>
+                  </span>
+                  <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
+                    {hasBudget ? (
+                      <>
+                        {formatMoney(b.spent)}{" "}
+                        <span
+                          className={
+                            over
+                              ? "text-red-600 dark:text-red-400"
+                              : "text-slate-400 dark:text-slate-500"
+                          }
+                        >
+                          / {formatMoney(b.effective)}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        {formatMoney(r.amount)} ·{" "}
+                        {Math.round(total > 0 ? (r.amount / total) * 100 : 0)}%
+                      </>
+                    )}
+                  </span>
+                </button>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      over ? "bg-red-500" : "bg-brand"
+                    }`}
+                    style={{
+                      width: `${fill}%`,
+                      opacity: hasBudget ? 1 : 1 - i * 0.12,
+                    }}
+                  />
+                </div>
+                {hasBudget && (
+                  <div className="mt-0.5 flex justify-between text-xs">
+                    {b.rollover && b.carry !== 0 ? (
+                      <span
+                        className={
+                          b.carry > 0
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : "text-red-500 dark:text-red-400"
+                        }
+                      >
+                        {b.carry > 0
+                          ? `+${formatMoney(b.carry)} перенос`
+                          : `${formatMoney(b.carry)} перерасход`}
+                      </span>
+                    ) : (
+                      <span />
+                    )}
+                    <span
+                      className={
+                        over
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-slate-400 dark:text-slate-500"
+                      }
+                    >
+                      {over
+                        ? `превышен на ${formatMoney(b.spent - b.effective)}`
+                        : `осталось ${formatMoney(b.remaining)}`}
+                    </span>
+                  </div>
+                )}
+                {isOpen && (
+                  <div className="mt-2 space-y-1.5 border-l-2 border-[var(--separator)] pl-3">
+                    {categoryNotesBreakdown(state, r.category, month).map((n) => {
+                      const noted = n.label !== "(без заметки)";
+                      return (
+                        <div
+                          key={n.label}
+                          className="flex items-center justify-between gap-2 text-[13px]"
+                        >
+                          <button
+                            type="button"
+                            disabled={!noted || !onOpenNote}
+                            onClick={() => noted && onOpenNote?.(n.label)}
+                            className={`min-w-0 truncate text-left ${
+                              noted && onOpenNote
+                                ? "text-brand"
+                                : "text-label-2"
+                            }`}
+                          >
+                            {n.label}
+                            <span className="text-label-3"> · {n.count}×</span>
+                          </button>
+                          <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
+                            {formatMoney(n.total)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      </Card>
+    </div>
+  );
+}
