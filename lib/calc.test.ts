@@ -750,6 +750,9 @@ const kv = (p: Partial<RecurringRule> = {}) =>
 const sBorder = state({
   recurring: [kv()],
   operations: [
+    // Июль закрыт намеренно: перебор смотрит на месяц НАЗАД, и без этой
+    // строки тест про границу месяца проверял бы заодно и взгляд назад.
+    op({ id: "rec-kv-2026-07", recurringId: "kv", amount: 22000, date: "2026-07-01" }),
     op({ id: "rec-kv-2026-08", recurringId: "kv", amount: 22000, date: "2026-08-01" }),
   ],
 });
@@ -767,7 +770,12 @@ eq(
 );
 
 // просроченное не исчезает, сколько бы ни прошло, и не вытесняется будущим
-const dueBoth = subscriptionsDue(state({ recurring: [kv()] }), "2026-08-31", 7);
+const dueBoth = subscriptionsDue(state({
+  recurring: [kv()],
+  operations: [
+    op({ id: "rec-kv-2026-07", recurringId: "kv", amount: 22000, date: "2026-07-01" }),
+  ],
+}), "2026-08-31", 7);
 eq(dueBoth.length, 2, "неоплаченный август и близкий сентябрь показываются ОБА");
 eq([dueBoth[0]?.month, dueBoth[0]?.overdue], ["2026-08", true], "август просрочен");
 eq([dueBoth[1]?.month, dueBoth[1]?.overdue], ["2026-09", false], "сентябрь предстоит");
@@ -776,6 +784,7 @@ eq([dueBoth[1]?.month, dueBoth[1]?.overdue], ["2026-09", false], "сентябр
 const sWin = state({
   recurring: [sub({ id: "w", amount: 100, dayOfMonth: 8, startMonth: "2026-01" })],
   operations: [
+    op({ id: "rec-w-2026-06", recurringId: "w", amount: 100, date: "2026-06-08" }),
     op({ id: "rec-w-2026-07", recurringId: "w", amount: 100, date: "2026-07-08" }),
   ],
 });
@@ -784,7 +793,12 @@ eq(subscriptionsDue(sWin, "2026-08-01", 7).length, 1, "окно: ровно 7 д
 
 // короткий месяц не рождает несуществующую дату
 const clamp = subscriptionsDue(
-  state({ recurring: [sub({ id: "c", amount: 300, dayOfMonth: 31, startMonth: "2026-01" })] }),
+  state({
+    recurring: [sub({ id: "c", amount: 300, dayOfMonth: 31, startMonth: "2026-01" })],
+    operations: [
+      op({ id: "rec-c-2026-08", recurringId: "c", amount: 300, date: "2026-08-31" }),
+    ],
+  }),
   "2026-09-25",
   7
 );
@@ -801,6 +815,52 @@ eq(
   subscriptionsDue(state({ recurring: [kv({ id: "later", startMonth: "2026-10" })] }), "2026-08-31", 7).length,
   0,
   "ещё не начавшаяся подписка о себе не напоминает"
+);
+
+
+// ---- подписки: взгляд назад ----
+// Найдено самопроверкой 02.09.2026. Перебирались только текущий месяц и
+// следующий, поэтому пропущенный платёж ПРОШЛОГО месяца исчезал навсегда:
+// свежий месяц оплачен, прошлый нет, и сводка молчала. Комментарий при этом
+// обещал, что просроченное отдаётся всегда.
+const kvLB = (p: Partial<RecurringRule> = {}) =>
+  sub({ id: "lb", amount: 1000, dayOfMonth: 21, startMonth: "2026-01", ...p });
+
+// текущий месяц ОПЛАЧЕН, прошлый нет
+const sMissed = state({
+  recurring: [kvLB()],
+  operations: [
+    op({ id: "rec-lb-2026-09", recurringId: "lb", amount: 1000, date: "2026-09-21" }),
+  ],
+});
+const lb = subscriptionsDue(sMissed, "2026-09-25", 7);
+eq(lb.length, 1, "пропуск прошлого месяца виден, хотя текущий оплачен");
+eq(lb[0]?.month ?? "ничего не вернулось", "2026-08", "и это именно прошлый месяц");
+eq(lb[0]?.overdue ?? "ничего не вернулось", true, "помечен просроченным");
+
+// оба оплачены — тишина
+const sBothPaid = state({
+  recurring: [kvLB()],
+  operations: [
+    op({ id: "rec-lb-2026-08", recurringId: "lb", amount: 1000, date: "2026-08-21" }),
+    op({ id: "rec-lb-2026-09", recurringId: "lb", amount: 1000, date: "2026-09-21" }),
+  ],
+});
+eq(subscriptionsDue(sBothPaid, "2026-09-25", 7).length, 0, "оба оплачены, молчим");
+
+// назад ровно ОДИН шаг, позапрошлый не всплывает
+eq(
+  subscriptionsDue(sMissed, "2026-10-25", 7).filter(x => x.month === "2026-08").length,
+  0,
+  "позапрошлый месяц назад не тянем"
+);
+
+// подписка, которая ещё не началась, задним числом не всплывает
+eq(
+  subscriptionsDue(state({ recurring: [kvLB({ startMonth: "2026-09" })] }),
+                   "2026-09-25", 7).filter(x => x.month === "2026-08").length,
+  0,
+  "до начала подписки долгов нет"
 );
 
 // ---- итог ----
