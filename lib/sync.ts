@@ -98,7 +98,10 @@ export function fromPayload(p: SyncPayload): AppState {
     debts: p.debts ?? [],
     deletedAccountIds: p.deletedAccountIds ?? {},
     updatedAt: p.updatedAt ?? 0,
-    settingsUpdatedAt: p.settingsUpdatedAt ?? 0,
+    // Документ старой версии метки не знает: датируем его настройки временем
+    // самого документа (как сливалось раньше), иначе правка настроек на ещё не
+    // обновлённом телефоне проигрывала бы всегда.
+    settingsUpdatedAt: p.settingsUpdatedAt ?? p.updatedAt ?? 0,
   };
 }
 
@@ -197,9 +200,8 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
   const other = remoteNewer ? local : remote;
   // Настройки (цель, бюджеты, шаблоны, основной счёт) берём оттуда, где их
   // правили позже, по своей метке. При равенстве — из хаба (remote): новое
-  // устройство или вкладка без правок настроек не должны затирать ими таблицу.
-  // Старые версии приложения метку не отправляют, их документ считается
-  // правленным «никогда», и откатить свежие настройки они больше не могут.
+  // устройство без правок настроек не должно затирать ими таблицу. Документ
+  // старой версии приложения датируется своим updatedAt (см. fromPayload).
   const settingsBase =
     (local.settingsUpdatedAt ?? 0) > (remote.settingsUpdatedAt ?? 0)
       ? local

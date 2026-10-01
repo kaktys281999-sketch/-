@@ -1128,6 +1128,25 @@ eq(
   eq(mergeStates(edited, hub).settingsUpdatedAt, 400, "метка настроек — максимум из двух");
 }
 
+// ---- Переходный период: документ старой версии без метки настроек ----
+{
+  const newDesk = state({ updatedAt: 100, settingsUpdatedAt: 100, budgets: { "Еда": 15000 } });
+  // телефон на старой версии поменял бюджет позже и отправил документ без метки
+  const oldPhonePayload = { ...toPayload(state({ updatedAt: 200, budgets: { "Еда": 20000 } })) } as Record<string, unknown>;
+  delete oldPhonePayload.settingsUpdatedAt;
+  const fromOld = fromPayload(oldPhonePayload as unknown as ReturnType<typeof toPayload>);
+  eq(fromOld.settingsUpdatedAt, 200, "настройки старого документа датируются его временем");
+  eq((mergeStates(newDesk, fromOld).budgets ?? {})["Еда"], 20000, "более поздняя правка на старой версии не теряется");
+  // а свежая правка на новой версии побеждает устаревший старый документ
+  const staleOld = fromPayload({ ...oldPhonePayload, updatedAt: 50 } as unknown as ReturnType<typeof toPayload>);
+  eq((mergeStates(newDesk, staleOld).budgets ?? {})["Еда"], 15000, "устаревший документ старой версии не откатывает настройки");
+  // две вкладки с равной меткой и разными настройками сходятся за один шаг
+  const tabA = state({ updatedAt: 10, settingsUpdatedAt: 5, budgets: { "Еда": 1 } });
+  const tabB = state({ updatedAt: 11, settingsUpdatedAt: 5, budgets: { "Еда": 2 } });
+  const a1 = mergeStates(tabB, tabA); // вкладка A получила событие от B
+  eq((a1.budgets ?? {})["Еда"], 1, "при равной метке вкладка оставляет свои настройки");
+}
+
 // ---- Альфа: «Альфа банк» и «Альфа-Банк» — одно имя ----
 eq(ensureAlfaAccounts([{ id: "m", name: "Альфа банк", baseBalance: 0 }]).map((a) => a.id), ["m", "alfa-business"],
   "имя с пробелом вместо дефиса не дублируется");

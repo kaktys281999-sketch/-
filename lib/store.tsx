@@ -82,6 +82,8 @@ const INITIAL_STATE: AppState = {
   recurring: [],
   debts: [],
   updatedAt: 0,
+  // явный 0: настройки нового устройства — «не правились никогда»
+  settingsUpdatedAt: 0,
 };
 
 export type SyncStatusKind = "idle" | "syncing" | "ok" | "error" | "offline";
@@ -240,7 +242,8 @@ function parseStoredState(raw: string): AppState {
     debts: parsed.debts ?? [],
     deletedAccountIds,
     updatedAt: parsed.updatedAt ?? 0,
-    settingsUpdatedAt: parsed.settingsUpdatedAt ?? 0,
+    // сохранено старой версией — датируем настройки временем документа
+    settingsUpdatedAt: parsed.settingsUpdatedAt ?? parsed.updatedAt ?? 0,
   };
 }
 
@@ -424,7 +427,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return;
       }
       setState((cur) => {
-        const merged = mergeStates(cur, other);
+        // Соседняя вкладка — «удалённая» сторона, но при равных метках
+        // оставляем свои настройки: иначе две вкладки могли бы бесконечно
+        // меняться ими. К таблице обе вкладки и так сойдутся своими раундами.
+        const merged = mergeStates(other, cur);
         return canonicalJson(merged) === canonicalJson(cur) ? cur : merged;
       });
     };
