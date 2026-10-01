@@ -280,7 +280,7 @@ export function paymentCalendar(
       c.count > 0 ? c.paymentDates.slice(0, c.count) : c.paymentDates;
     // в копейках, как в creditInstallments, чтобы календарь и карточка кредита
     // не расходились из-за хвостов float
-    const paidK = Math.round(c.payments.reduce((sum, p) => sum + p.amount, 0) * 100);
+    const paidK = c.payments.reduce((sum, p) => sum + Math.round(p.amount * 100), 0);
     const payK = Math.round(c.payment * 100);
     for (const [index, date] of scheduledDates.entries()) {
       if (monthKeyFromISO(date) !== month || payK <= 0) continue;
@@ -926,7 +926,9 @@ export interface CreditView {
 export function creditInstallments(
   c: Credit
 ): { paid: number; paidCount: number; paidTowardNext: number } {
-  const paidK = Math.round(c.payments.reduce((sum, p) => sum + p.amount, 0) * 100);
+  // каждый платёж округляем до копеек отдельно — в том же масштабе, что и
+  // сумму платежа, иначе 10 × 2 916,666… давали 9 целых платежей
+  const paidK = c.payments.reduce((sum, p) => sum + Math.round(p.amount * 100), 0);
   const payK = Math.round(c.payment * 100);
   if (payK <= 0) {
     return { paid: paidK / 100, paidCount: Math.min(c.count, c.payments.length), paidTowardNext: 0 };

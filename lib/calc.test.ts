@@ -1067,6 +1067,17 @@ eq(
   eq(cal.map((i) => i.paid), [true], "календарь согласен: октябрьский платёж оплачен");
 }
 
+// и для суммы с долями копейки (35 000 / 12)
+{
+  const pay = 35000 / 12;
+  const dates = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, "0")}-15`);
+  const c = credit({ payment: pay, count: 12, paymentDates: dates,
+    payments: Array.from({ length: 10 }, (_, i) => ({ id: `q${i}`, date: dates[i], amount: pay, accountId: "yandex" })) });
+  eq([creditView(c).paidCount, creditView(c).nextPaymentDate], [10, "2026-11-15"], "35 000 / 12 × 10 — это 10 платежей");
+  eq(paymentCalendar(state({ credits: [c] }), "2026-10", "2026-10-01").filter((i) => i.kind === "credit").map((i) => i.paid),
+    [true], "и календарь не показывает «0,03 ₽ к оплате»");
+}
+
 // ---- Сравнение состояний не зависит от порядка записей ----
 {
   const a = op({ id: "a1", amount: 1 });
