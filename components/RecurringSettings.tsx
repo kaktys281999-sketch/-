@@ -7,8 +7,12 @@ import { TYPES, getTypeDef } from "@/lib/categories";
 import { formatMoney, monthKey } from "@/lib/format";
 import { Card } from "./ui";
 
-// Типы для регулярных операций (кредиты/займы исключаем)
-const REC_TYPES = TYPES.filter((t) => t.type !== "credit_loan");
+// Типы для регулярных операций. Кредиты/займы исключаем, перевод тоже: у правила
+// нет счёта-получателя, и «перевод» без него каждый месяц списывал бы деньги в
+// никуда. Раньше «Перевод» здесь был, и выбор его ещё и ронял форму.
+const REC_TYPES = TYPES.filter(
+  (t) => t.type !== "credit_loan" && t.type !== "transfer"
+);
 
 function SettingsTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -129,7 +133,7 @@ function RecurringForm({
 
   function changeType(t: OpType) {
     setType(t);
-    setCategory(getTypeDef(t).categories[0].name);
+    setCategory(getTypeDef(t).categories[0]?.name ?? "");
   }
 
   function submit() {

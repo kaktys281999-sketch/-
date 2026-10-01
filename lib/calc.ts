@@ -58,6 +58,7 @@ export function dueRecurringOperations(
   for (const r of rules) {
     if (r.deleted || r.active === false || !r.startMonth || !r.category) continue;
     if (r.kind === "subscription") continue; // подписки списываются вручную
+    if (r.type === "transfer") continue; // у правила нет получателя
     for (const month of monthsRange(r.startMonth, currentMonth)) {
       const id = `rec-${r.id}-${month}`;
       if (existingIds.has(id)) continue; // уже создана или удалена (надгробие)
@@ -80,12 +81,33 @@ export function dueRecurringOperations(
   return out;
 }
 
+// Вернуть связь с правилом оплатам подписок и регулярным операциям, у которых
+// её стёрло прежнее редактирование. Id таких операций детерминированный
+// (rec-<правило>-<YYYY-MM>), так что правило восстанавливается однозначно.
+// Применяется и к локальным данным, и к пришедшим из хаба: правка одинаковая с
+// обеих сторон, поэтому при слиянии она не теряется.
+export function restoreRecurringIds(
+  operations: Operation[],
+  rules: RecurringRule[]
+): Operation[] {
+  const ruleIds = new Set(rules.map((r) => r.id));
+  let changed = false;
+  const out = operations.map((o) => {
+    if (o.recurringId) return o;
+    const m = /^rec-(.+)-\d{4}-\d{2}$/.exec(o.id);
+    if (!m || !ruleIds.has(m[1])) return o;
+    changed = true;
+    return { ...o, recurringId: m[1] };
+  });
+  return changed ? out : operations;
+}
+
 // Дельта операции для баланса счёта
 export function operationDelta(op: Operation): number {
   if (op.type === "income") return op.amount;
   if (op.type === "expense_personal" || op.type === "expense_work")
     return -op.amount;
-  if (op.type === "transfer") return -op.amount; // со счёта-источника уходит
+  if (op.type === "transfer") return op.toAccountId ? -op.amount : 0; // со счёта-источника уходит
   // credit_loan — по знаку категории
   return getCategorySign(op.type, op.category) * op.amount;
 }
@@ -93,7 +115,9 @@ export function operationDelta(op: Operation): number {
 // Дельта операции для КОНКРЕТНОГО счёта (учитывает перевод: −у источника, +у получателя)
 export function operationAccountDelta(op: Operation, accountId: string): number {
   if (op.type === "transfer") {
-    if (op.accountId === op.toAccountId) return 0;
+    // Перевод без получателя (его могла сохранить старая форма регулярных
+    // операций) никуда деньги не переносит, значит и со счёта их не снимает.
+    if (!op.toAccountId || op.accountId === op.toAccountId) return 0;
     if (op.accountId === accountId) return -op.amount;
     if (op.toAccountId === accountId) return op.amount;
     return 0;
@@ -167,10 +191,20 @@ export function creditCardLimit(account: Account): number {
   return account.kind === "credit_card" ? Math.max(0, account.creditLimit ?? 0) : 0;
 }
 
+// Доступно по карте = лимит − долг + переплата. Переплата (положительный баланс
+// кредитки: внесли больше долга, пришёл возврат) — свои деньги на карте, их
+// тоже можно тратить. Раньше она нигде не учитывалась и просто исчезала.
 export function creditCardAvailable(state: AppState, accountId: string): number {
   const acc = state.accounts.find((a) => a.id === accountId);
   if (!acc || acc.kind !== "credit_card") return 0;
-  return creditCardLimit(acc) - creditCardDebt(state, accountId);
+  return round2(creditCardLimit(acc) + currentBalance(state, accountId));
+}
+
+// Переплата по кредитке: положительный баланс карты, деньги владельца.
+export function creditCardOverpay(state: AppState, accountId: string): number {
+  const acc = state.accounts.find((a) => a.id === accountId);
+  if (!acc || acc.kind !== "credit_card") return 0;
+  return Math.max(0, currentBalance(state, accountId));
 }
 
 export function creditCardDebtTotal(state: AppState): number {
@@ -579,16 +613,25 @@ export function currentBalance(state: AppState, accountId: string): number {
   const transferDelta = (state.transfers ?? [])
     .filter((t) => !t.deleted)
     .reduce((sum, t) => sum + transferAccountDelta(t, accountId), 0);
-  return acc.baseBalance + opDelta + debtDelta + creditDelta + transferDelta;
+  // Округляем до копеек: иначе 3 × 149,90 и оплата 449,70 оставляли «долг»
+  // 5,7e-14, и напоминание «оплатить кредитку · долг 0 ₽» висело вечно.
+  return round2(acc.baseBalance + opDelta + debtDelta + creditDelta + transferDelta);
 }
 
-// На руках = только собственные деньги на обычных счетах.
-// Долг/лимит кредиток не включаем: это обязательства и доступный кредит,
+// На руках = собственные деньги: обычные счета плюс переплата на кредитках.
+// Долг и лимит кредиток не включаем: это обязательства и доступный кредит,
 // а не деньги, которыми пользователь уже владеет.
 export function totalOnHand(state: AppState): number {
-  return state.accounts
-    .filter((a) => a.kind !== "credit_card")
-    .reduce((sum, a) => sum + currentBalance(state, a.id), 0);
+  return round2(
+    state.accounts.reduce(
+      (sum, a) =>
+        sum +
+        (a.kind === "credit_card"
+          ? creditCardOverpay(state, a.id)
+          : currentBalance(state, a.id)),
+      0
+    )
+  );
 }
 
 export interface MonthSummary {
@@ -639,7 +682,38 @@ export function accountMonthFlow(
     if (d >= 0) income += d;
     else expense += -d;
   }
-  return { income, expense, net: income - expense };
+  // Долги и кредиты тоже двигают деньги по счёту. Без них обороты и
+  // спарклайн расходились с реальным изменением баланса.
+  const add = (date: string, d: number) => {
+    if (!d || monthKeyFromISO(date) !== mKey) return;
+    if (d > 0) income += d;
+    else expense += -d;
+  };
+  for (const debt of state.debts ?? []) {
+    if (debt.deleted) continue;
+    const sign = debt.direction === "owed_to_me" ? -1 : 1;
+    if (debt.accountId === accountId) add(debt.date, sign * debt.amount);
+    for (const p of debt.payments) {
+      if (p.accountId === accountId) add(p.date, -sign * p.amount);
+    }
+  }
+  for (const c of state.credits ?? []) {
+    if (c.deleted) continue;
+    if (
+      c.receivedAffectsBalance &&
+      (c.receivedAccountId || c.accountId) === accountId
+    ) {
+      add(c.receivedDate, c.received);
+    }
+    for (const p of c.payments) {
+      if (p.accountId === accountId) add(p.date, -p.amount);
+    }
+  }
+  return {
+    income: round2(income),
+    expense: round2(expense),
+    net: round2(income - expense),
+  };
 }
 
 // Расход по конкретной категории за месяц
@@ -771,11 +845,35 @@ export function expensePace(
     : daysInMonth;
   const expense = monthSummary(state, month).expense;
   const avgDaily = expense / Math.max(1, daysElapsed);
+  if (!isCurrent) {
+    return { daysElapsed, daysInMonth, avgDaily: Math.round(avgDaily), projected: expense };
+  }
+  // Прогноз = уже потрачено + обычные траты в нынешнем темпе на оставшиеся дни
+  // + ещё не оплаченные в этом месяце подписки и регулярные расходы.
+  // Регулярные платежи по дням не размазываем: раньше аренда 1-го числа давала
+  // прогноз в 30 раз больше (22 000 → 682 000 ₽).
+  let variable = 0;
+  for (const o of state.operations) {
+    if (o.deleted || o.recurringId) continue;
+    if (o.type !== "expense_personal" && o.type !== "expense_work") continue;
+    if (monthKeyFromISO(o.date) !== month) continue;
+    variable += o.amount;
+  }
+  const liveIds = new Set(state.operations.filter((o) => !o.deleted).map((o) => o.id));
+  let fixedAhead = 0;
+  for (const r of state.recurring ?? []) {
+    if (r.deleted || r.active === false || !r.startMonth || r.startMonth > month) continue;
+    if (r.type !== "expense_personal" && r.type !== "expense_work") continue;
+    if (liveIds.has(subscriptionOpId(r.id, month))) continue; // уже оплачено/создано
+    fixedAhead += r.amount;
+  }
+  const daysLeft = daysInMonth - daysElapsed;
+  const variableDaily = variable / Math.max(1, daysElapsed);
   return {
     daysElapsed,
     daysInMonth,
     avgDaily: Math.round(avgDaily),
-    projected: isCurrent ? Math.round(avgDaily * daysInMonth) : expense,
+    projected: Math.round(expense + variableDaily * daysLeft + fixedAhead),
   };
 }
 
@@ -833,6 +931,15 @@ export function creditView(c: Credit): CreditView {
       : Math.min(c.count, c.payments.length);
   const isPaidOff = remaining <= 0;
   const nextPaymentDate = isPaidOff ? null : c.paymentDates[paidCount] ?? null;
+  // Сколько осталось внести по ближайшему платежу: частичная оплата уже
+  // уменьшила его. Раньше здесь всегда был полный платёж, и напоминание
+  // предлагало переплатить.
+  const paidTowardNext = c.payment > 0 ? Math.max(0, paid - c.payment * paidCount) : 0;
+  const nextPaymentAmount = isPaidOff
+    ? 0
+    : c.payment > 0
+      ? round2(Math.min(remaining, Math.max(0, c.payment - paidTowardNext)))
+      : c.payment;
   return {
     credit: c,
     totalDue,
@@ -841,7 +948,7 @@ export function creditView(c: Credit): CreditView {
     overpay: totalDue - c.received,
     paidCount,
     nextPaymentDate,
-    nextPaymentAmount: c.payment,
+    nextPaymentAmount,
     isPaidOff,
   };
 }
@@ -855,12 +962,16 @@ export function creditInfo(state: AppState): CreditInfo {
   let totalDue = 0;
   let paid = 0;
   let overpay = 0;
+  // Остаток считаем по каждому кредиту отдельно: переплата одного кредита не
+  // должна «гасить» долг по другому.
+  let remaining = 0;
   let next: { date: string; amount: number } | null = null;
 
   for (const v of creditViews(state)) {
     totalDue += v.totalDue;
     paid += v.paid;
     overpay += v.overpay;
+    remaining += v.remaining;
     if (v.nextPaymentDate && (!next || v.nextPaymentDate < next.date)) {
       next = { date: v.nextPaymentDate, amount: v.nextPaymentAmount };
     }
@@ -870,7 +981,7 @@ export function creditInfo(state: AppState): CreditInfo {
     totalDue,
     overpay,
     paid,
-    remaining: Math.max(0, round2(totalDue - paid)),
+    remaining: round2(remaining),
     nextPaymentDate: next?.date ?? null,
     nextPaymentAmount: next?.amount ?? 0,
   };

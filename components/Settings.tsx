@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useStore,
   currentBalance,
@@ -255,12 +255,13 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
             }`}
           >
             <div className="flex items-center justify-between gap-3">
-              <input
-                type="text"
-                value={a.name}
-                onChange={(e) => renameAccount(a.id, e.target.value)}
-                aria-label="Название счёта"
-                className="min-w-0 flex-1 bg-transparent text-[15px] outline-none focus:ring-0"
+              <AccountNameInput
+                id={a.id}
+                name={a.name}
+                otherNames={state.accounts
+                  .filter((x) => x.id !== a.id)
+                  .map((x) => x.name)}
+                onRename={(name) => renameAccount(a.id, name)}
               />
               <div className="shrink-0 text-right">
                 <div className="mb-1 text-[11px] uppercase text-label-3">
@@ -269,8 +270,8 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
                 <NumberInput
                   value={
                     a.kind === "credit_card"
-                      ? Math.round(creditCardDebt(state, a.id))
-                      : Math.round(currentBalance(state, a.id))
+                      ? creditCardDebt(state, a.id)
+                      : currentBalance(state, a.id)
                   }
                   onCommit={(n) =>
                     setAccountBalance(
@@ -285,13 +286,29 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  const toCard = a.kind !== "credit_card";
+                  const balance = currentBalance(state, a.id);
+                  const consequence = toCard
+                    ? balance > 0
+                      ? ` Остаток ${formatMoney(balance)} будет считаться переплатой по карте.`
+                      : ""
+                    : " Долг по карте станет отрицательным остатком обычного счёта.";
+                  if (
+                    !confirm(
+                      toCard
+                        ? `Сделать «${a.name}» кредиткой?${consequence}`
+                        : `Сделать «${a.name}» обычным счётом?${consequence}`
+                    )
+                  ) {
+                    return;
+                  }
                   updateAccount(a.id, {
-                    kind: a.kind === "credit_card" ? "regular" : "credit_card",
+                    kind: toCard ? "credit_card" : "regular",
                     creditPaymentDay: a.creditPaymentDay ?? 25,
                     creditLimit: a.creditLimit ?? 0,
-                  })
-                }
+                  });
+                }}
                 className={chip(a.kind === "credit_card")}
               >
                 Кредитка
@@ -621,7 +638,7 @@ function SettingsTitle({ children }: { children: React.ReactNode }) {
 }
 
 function SyncCard({ fieldCls }: { fieldCls: string }) {
-  const { sync, syncState, setSyncConfig, pullNow, pushNow } = useStore();
+  const { sync, syncState, setSyncConfig, pullNow } = useStore();
   const busy = syncState.status === "syncing";
 
   return (
@@ -632,11 +649,18 @@ function SyncCard({ fieldCls }: { fieldCls: string }) {
           Данные хранятся в Google-таблице — приложение работает одинаково на
           телефоне и на компьютере.
         </p>
+        {!sync.url.trim() && (
+          <p className="mb-3 rounded-xl bg-amber-50 px-3.5 py-2.5 text-[13px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+            Синхронизация не настроена: данные есть только на этом устройстве.
+            Вставьте ссылку хаба вместе с токеном (…/exec?token=…) и нажмите
+            «Синхронизировать сейчас».
+          </p>
+        )}
 
         <input
           type="url"
           inputMode="url"
-          placeholder="https://script.google.com/macros/s/.../exec"
+          placeholder="https://script.google.com/macros/s/.../exec?token=…"
           value={sync.url}
           onChange={(e) => setSyncConfig({ url: e.target.value })}
           className={`${fieldCls} text-[13px]`}
@@ -652,22 +676,17 @@ function SyncCard({ fieldCls }: { fieldCls: string }) {
           />
         </label>
 
-        <div className="mt-4 flex gap-2.5">
+        {/* Одна кнопка: синхронизация всегда сливает данные устройства и
+            таблицы. Прежнее «Сохранить» перезаписывало таблицу целиком и на
+            новом устройстве могло стереть всё. */}
+        <div className="mt-4">
           <button
             type="button"
             disabled={busy || !sync.url.trim()}
             onClick={() => void pullNow()}
-            className="flex-1 rounded-2xl bg-black/[0.06] py-3 text-[15px] font-semibold text-slate-700 disabled:opacity-40 dark:bg-white/10 dark:text-slate-200"
+            className="w-full rounded-2xl bg-brand py-3 text-[15px] font-semibold text-white disabled:opacity-40"
           >
-            Загрузить
-          </button>
-          <button
-            type="button"
-            disabled={busy || !sync.url.trim()}
-            onClick={() => void pushNow()}
-            className="flex-1 rounded-2xl bg-brand py-3 text-[15px] font-semibold text-white disabled:opacity-40"
-          >
-            Сохранить
+            Синхронизировать сейчас
           </button>
         </div>
 
@@ -688,5 +707,60 @@ function SyncCard({ fieldCls }: { fieldCls: string }) {
         )}
       </Card>
     </div>
+  );
+}
+
+// Название счёта: правим локально, сохраняем при выходе из поля. Пустое имя и
+// повтор чужого имени не сохраняем — счёт нельзя было бы отличить в формах.
+function AccountNameInput({
+  id,
+  name,
+  otherNames,
+  onRename,
+}: {
+  id: string;
+  name: string;
+  otherNames: string[];
+  onRename: (name: string) => void;
+}) {
+  const [text, setText] = useState(name);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setText(name);
+  }, [name]);
+
+  function commit() {
+    const trimmed = text.trim();
+    const duplicate = otherNames.some(
+      (n) => n.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (!trimmed || duplicate) {
+      if (duplicate) alert(`Счёт «${trimmed}» уже есть`);
+      setText(name);
+      return;
+    }
+    if (trimmed !== name) onRename(trimmed);
+    else setText(name);
+  }
+
+  return (
+    <input
+      type="text"
+      value={text}
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        focused.current = false;
+        commit();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      aria-label="Название счёта"
+      data-account-id={id}
+      className="min-w-0 flex-1 bg-transparent text-[15px] outline-none focus:ring-0"
+    />
   );
 }

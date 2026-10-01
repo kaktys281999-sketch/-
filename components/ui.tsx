@@ -4,8 +4,10 @@ import { ReactNode, useEffect, useRef, useState } from "react";
 import { formatMoney } from "@/lib/format";
 
 // Числовое поле с локальным буфером ввода: позволяет очищать/вводить
-// промежуточные значения, не схлопывая значение в 0, и фиксирует
-// только корректные числа.
+// промежуточные значения и фиксирует число при выходе из поля или по Enter.
+// Раньше оно фиксировало каждое нажатие, а округлённое значение тут же
+// возвращалось в поле: при вводе 1234,56 получалось 12356. Запятая и точка
+// принимаются одинаково.
 export function NumberInput({
   value,
   onCommit,
@@ -16,38 +18,39 @@ export function NumberInput({
   className?: string;
 }) {
   const [text, setText] = useState<string>(() => String(value));
-  // последнее значение, которое мы сами зафиксировали — чтобы отличать
-  // внешние изменения (сброс, операции) от собственных
-  const lastValue = useRef<number>(value);
+  // пока поле в фокусе, внешнее значение не перетирает набираемый текст
+  const focused = useRef(false);
 
   useEffect(() => {
-    if (value !== lastValue.current) {
-      lastValue.current = value;
-      setText(String(value));
-    }
+    if (!focused.current) setText(String(value));
   }, [value]);
+
+  function commit() {
+    const t = text.replace(/\s/g, "").replace(",", ".");
+    const n = Number(t);
+    if (t === "" || t === "-" || Number.isNaN(n)) {
+      setText(String(value));
+      return;
+    }
+    if (n !== value) onCommit(n);
+  }
 
   return (
     <input
-      type="number"
-      inputMode="numeric"
+      type="text"
+      inputMode="decimal"
       value={text}
-      onChange={(e) => {
-        const t = e.target.value;
-        setText(t);
-        if (t === "" || t === "-") return;
-        const n = Number(t);
-        if (!Number.isNaN(n)) {
-          lastValue.current = n;
-          onCommit(n);
-        }
+      onFocus={() => {
+        focused.current = true;
       }}
+      onChange={(e) => setText(e.target.value.replace(/[^\d.,\-\s]/g, ""))}
       onBlur={() => {
-        if (text === "" || Number.isNaN(Number(text))) {
-          setText(String(value));
-        }
+        focused.current = false;
+        commit();
       }}
-      onWheel={(e) => e.currentTarget.blur()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
       className={className}
     />
   );

@@ -36,8 +36,12 @@ import {
   creditCardLimit,
   creditCardAvailable,
   creditCardDebtTotal,
+  creditCardOverpay,
+  restoreRecurringIds,
 } from "./calc";
-import { mergeStates } from "./sync";
+import { mergeStates, pull, push, toPayload, fromPayload } from "./sync";
+import { freshDraft, pickToAccount } from "./draft";
+import { ensureAlfaAccounts } from "./accounts";
 import { AppState, Operation, Debt, Credit, RecurringRule, Transfer } from "./types";
 
 let passed = 0;
@@ -863,6 +867,230 @@ eq(
   "до начала подписки долгов нет"
 );
 
+// ---- Форма: память после перевода ----
+// Раньше после перевода форма падала (TypeError в makeFresh), а с ней и каждое
+// следующее открытие «Добавить»: у типа «Перевод» нет категорий.
+{
+  const accs = [
+    { id: "yandex", name: "Яндекс", baseBalance: 0 },
+    { id: "sber", name: "Сбер", baseBalance: 0 },
+    { id: "cash", name: "Наличные", baseBalance: 0 },
+  ];
+  const after = freshDraft(
+    { type: "transfer", category: "", accountId: "yandex", toAccountId: "sber", date: "2026-10-01" },
+    accs, "yandex", "2026-10-01"
+  );
+  eq([after.type, after.accountId, after.toAccountId, after.category], ["transfer", "yandex", "sber", ""],
+    "после перевода черновик снова перевод с тем же получателем");
+  // старая память без получателя (так писала прежняя версия)
+  const legacy = freshDraft(
+    { type: "transfer", category: "", accountId: "yandex", date: "2026-10-01" },
+    accs, "yandex", "2026-10-01"
+  );
+  eq([legacy.type, legacy.toAccountId], ["transfer", "sber"], "старая память без получателя не роняет форму");
+  // получатель удалён — берём другой счёт, но не источник
+  const gone = freshDraft(
+    { type: "transfer", category: "", accountId: "yandex", toAccountId: "deleted", date: "2026-10-01" },
+    accs, "yandex", "2026-10-01"
+  );
+  eq(gone.toAccountId, "sber", "удалённый получатель заменён другим счётом");
+  // один счёт — перевод невозможен, откатываемся к расходу
+  const single = freshDraft(
+    { type: "transfer", category: "", accountId: "yandex", toAccountId: "sber", date: "2026-10-01" },
+    [accs[0]], "yandex", "2026-10-01"
+  );
+  eq(single.type, "expense_personal", "при одном счёте вместо перевода обычный расход");
+  eq(pickToAccount(accs, "sber", "sber"), "yandex", "получатель не может совпасть с источником");
+  // обычный расход по-прежнему запоминается
+  const exp = freshDraft(
+    { type: "expense_personal", category: "Рестораны и кафе", accountId: "sber", date: "2026-09-30" },
+    accs, "yandex", "2026-10-01"
+  );
+  eq([exp.type, exp.category, exp.accountId, exp.date], ["expense_personal", "Рестораны и кафе", "sber", "2026-09-30"],
+    "память расхода: тип, категория, счёт, дата");
+}
+
+// ---- Счета Альфа-Банка ----
+{
+  const base = [
+    { id: "yandex", name: "Яндекс банк", baseBalance: 100 },
+    { id: "cash", name: "Наличные", baseBalance: 0 },
+  ];
+  const added = ensureAlfaAccounts(base);
+  eq(added.map((a) => a.id), ["yandex", "cash", "alfa", "alfa-business"], "оба счёта Альфы добавлены в конец");
+  eq(added.filter((a) => a.id.startsWith("alfa")).map((a) => [a.baseBalance, a.kind ?? "regular"]),
+    [[0, "regular"], [0, "regular"]], "обычные счета с нулевым остатком");
+  eq(ensureAlfaAccounts(added), added, "повторный запуск ничего не добавляет");
+  eq(ensureAlfaAccounts(base, { alfa: 1 }).map((a) => a.id), ["yandex", "cash", "alfa-business"],
+    "удалённый пользователем счёт не возвращается");
+  eq(ensureAlfaAccounts([...base, { id: "x1", name: " альфа-банк ", baseBalance: 5 }]).map((a) => a.id),
+    ["yandex", "cash", "x1", "alfa-business"], "заведённый вручную под тем же именем не дублируется");
+  // два устройства завели одни и те же счета — слияние их не задваивает
+  const devA = state({ accounts: ensureAlfaAccounts(base), updatedAt: 10 });
+  const devB = state({ accounts: ensureAlfaAccounts(base), updatedAt: 20 });
+  eq(mergeStates(devA, devB).accounts.map((a) => a.id), ["yandex", "cash", "alfa", "alfa-business"],
+    "слияние двух устройств без дублей");
+  // счёт удалили на одном устройстве, другое завело его заново до синхронизации
+  const deleted = state({
+    accounts: base,
+    deletedAccountIds: { alfa: 1790000000000 },
+    updatedAt: 30,
+  });
+  eq(mergeStates(devA, deleted).accounts.some((a) => a.id === "alfa"), false,
+    "надгробие удаления побеждает свежезаведённый счёт");
+}
+
+// ---- Переводы: защита от «перевода в никуда» ----
+{
+  const orphan = op({ type: "transfer", category: "", amount: 5000, accountId: "yandex", toAccountId: undefined });
+  eq(operationAccountDelta(orphan, "yandex"), 0, "перевод без получателя не снимает деньги");
+  eq(operationDelta(orphan), 0, "перевод без получателя: дельта 0");
+  const ok = op({ type: "transfer", category: "", amount: 1000, accountId: "yandex", toAccountId: "sber" });
+  const st = state({ operations: [ok] });
+  eq([currentBalance(st, "yandex"), currentBalance(st, "sber"), totalOnHand(st)], [9000, 6000, 15000],
+    "перевод меняет оба счёта и не меняет «На руках»");
+  eq([monthSummary(st, "2026-05").income, monthSummary(st, "2026-05").expense], [0, 0],
+    "перевод не доход и не расход");
+  const rule = { id: "rt", title: "Копилка", type: "transfer" as const, category: "Продукты / еда / вода",
+    amount: 5000, accountId: "yandex", dayOfMonth: 1, startMonth: "2026-09", note: "" };
+  eq(dueRecurringOperations([rule], new Set(), "2026-10", "2026-10-05").length, 0,
+    "регулярное правило-перевод операций не порождает");
+}
+
+// ---- Копеечные хвосты в балансе ----
+{
+  const st = state({
+    accounts: [{ id: "card", name: "Альфа кредитка", baseBalance: 0, kind: "credit_card", creditLimit: 1000, creditPaymentDay: 5 }],
+    operations: [
+      op({ accountId: "card", amount: 149.9 }),
+      op({ accountId: "card", amount: 149.9 }),
+      op({ accountId: "card", amount: 149.9 }),
+      op({ type: "transfer", category: "", accountId: "x", toAccountId: "card", amount: 449.7 }),
+    ],
+  });
+  eq(currentBalance(st, "card"), 0, "баланс округлён до копеек");
+  eq(creditCardDebt(st, "card"), 0, "нет фантомного долга 5,7e-14");
+  eq(paymentCalendar(st, "2026-05", "2026-05-01").filter((i) => i.kind === "credit_card").length, 0,
+    "в календаре нет «оплатить кредитку · долг 0 ₽»");
+}
+
+// ---- Переплата по кредитке — деньги владельца ----
+{
+  const st = state({
+    accounts: [
+      { id: "yandex", name: "Яндекс", baseBalance: 20000 },
+      { id: "card", name: "Сплит", baseBalance: -7241, kind: "credit_card", creditLimit: 15000, creditPaymentDay: 2 },
+    ],
+    operations: [op({ type: "transfer", category: "", accountId: "yandex", toAccountId: "card", amount: 10921 })],
+  });
+  eq(creditCardDebt(st, "card"), 0, "переплатили — долга нет");
+  eq(creditCardOverpay(st, "card"), 3680, "переплата видна");
+  eq(creditCardAvailable(st, "card"), 18680, "доступно = лимит + переплата");
+  eq(totalOnHand(st), 12759, "переплата входит в «На руках» (9 079 + 3 680)");
+  eq(realPosition(st), 12759, "реальная позиция не теряет переплату");
+  const before = state({
+    accounts: st.accounts,
+    operations: [],
+  });
+  eq(realPosition(before), 20000 - 7241, "до оплаты");
+  eq(realPosition(st), realPosition(before), "оплата кредитки с переплатой не меняет реальную позицию");
+}
+
+// ---- Кредиты: частичный платёж и остаток по каждому кредиту ----
+{
+  const c = credit({ payment: 8209, count: 16, paymentDates: ["2026-09-29", "2026-10-29"],
+    payments: [{ id: "p1", date: "2026-09-30", amount: 5000, accountId: "yandex" }] });
+  const v = creditView(c);
+  eq([v.nextPaymentDate, v.nextPaymentAmount], ["2026-09-29", 3209], "после частичной оплаты осталось 3 209");
+  const full = credit({ payment: 1000, count: 2, paymentDates: ["2026-01-01", "2026-02-01"],
+    payments: [{ id: "a", date: "2026-01-01", amount: 1000, accountId: "yandex" }] });
+  eq(creditView(full).nextPaymentAmount, 1000, "после целого платежа следующий полный");
+  const over = credit({ payment: 1000, count: 1, paymentDates: ["2026-01-01"],
+    payments: [{ id: "a", date: "2026-01-01", amount: 1000, accountId: "yandex" }, { id: "b", date: "2026-01-02", amount: 1000, accountId: "yandex" }] });
+  const other = credit({ payment: 500, count: 4, paymentDates: [] });
+  eq(creditInfo(state({ credits: [over, other] })).remaining, 2000,
+    "переплата одного кредита не гасит долг по другому");
+}
+
+// ---- Обороты по счёту учитывают долги и кредиты ----
+{
+  const st = state({
+    debts: [debt({ direction: "i_owe", amount: 3000, accountId: "sber", date: "2026-05-03",
+      payments: [{ id: "dp", date: "2026-05-20", amount: 1000, accountId: "sber" }] })],
+    credits: [credit({ received: 100000, receivedDate: "2026-05-01", receivedAffectsBalance: true, accountId: "sber",
+      payments: [{ id: "cp", date: "2026-05-25", amount: 8209, accountId: "sber" }] })],
+  });
+  const f = accountMonthFlow(st, "sber", "2026-05");
+  eq([f.income, f.expense], [103000, 9209], "долг и кредит видны в оборотах");
+  eq(f.net, currentBalance(st, "sber") - 5000, "чистый оборот = изменение баланса");
+}
+
+// ---- Прогноз расхода не размазывает аренду ----
+{
+  const rent = { id: "rent", title: "Квартира", type: "expense_personal" as const, category: "Остальное / разное",
+    amount: 22000, accountId: "yandex", dayOfMonth: 1, startMonth: "2026-01", note: "", kind: "subscription" as const };
+  const st = state({
+    recurring: [rent],
+    operations: [op({ id: "rec-rent-2026-10", recurringId: "rent", amount: 22000, date: "2026-10-01" })],
+  });
+  eq(expensePace(st, "2026-10", "2026-10-01").projected, 22000, "1-го числа аренда не превращается в 682 000");
+  const st2 = state({ recurring: [rent], operations: [op({ amount: 300, date: "2026-10-01" })] });
+  eq(expensePace(st2, "2026-10", "2026-10-01").projected, 300 * 31 + 22000,
+    "неоплаченная аренда входит в прогноз один раз");
+}
+
+// ---- Связь оплат с подпиской восстанавливается ----
+{
+  const ops = [
+    op({ id: "rec-r1-2026-07", amount: 22000 }),
+    op({ id: "rec-gone-2026-07", amount: 5 }),
+    op({ id: "plain", amount: 1 }),
+  ];
+  const fixed = restoreRecurringIds(ops, [{ id: "r1", title: "", type: "expense_personal", category: "x",
+    amount: 1, accountId: "sber", dayOfMonth: 1, startMonth: "2026-01", note: "" }]);
+  eq(fixed.map((o) => o.recurringId ?? null), ["r1", null, null], "recurringId восстановлен только для живого правила");
+  eq(restoreRecurringIds(fixed, []), fixed, "без изменений — тот же массив");
+  const payload = toPayload(state({ operations: ops, recurring: [{ id: "r1", title: "", type: "expense_personal",
+    category: "x", amount: 1, accountId: "sber", dayOfMonth: 1, startMonth: "2026-01", note: "" }] }));
+  eq(fromPayload(payload).operations[0].recurringId, "r1", "из хаба тоже приходит исправленным");
+}
+
+// ---- Ответы хаба: отказ больше не выдаётся за успех ----
+async function hubTests() {
+  const realFetch = globalThis.fetch;
+  const reply = (body: string, status = 200) =>
+    (async () => new Response(body, { status, headers: { "Content-Type": "application/json" } })) as typeof fetch;
+  const outcome = async (f: () => Promise<unknown>) => {
+    try {
+      await f();
+      return "ok";
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+  };
+  const payload = toPayload(state({}));
+  try {
+    globalThis.fetch = reply(JSON.stringify({ ok: true }));
+    eq(await outcome(() => push("https://hub/exec?token=x", payload)), "ok", "push: {ok:true} — успех");
+    globalThis.fetch = reply(JSON.stringify({ ok: false, error: "unauthorized" }));
+    eq((await outcome(() => push("https://hub/exec", payload))).includes("токен"), true, "push: неверный токен — ошибка");
+    globalThis.fetch = reply(JSON.stringify({ ok: false, error: "Exception: Lock timeout" }));
+    eq((await outcome(() => push("https://hub/exec", payload))) !== "ok", true, "push: занятая блокировка — ошибка");
+    globalThis.fetch = reply("<html>Google</html>");
+    eq((await outcome(() => push("https://hub/exec", payload))) !== "ok", true, "push: HTML вместо JSON — ошибка");
+    globalThis.fetch = reply(JSON.stringify({ ok: false, error: "unauthorized" }));
+    eq((await outcome(() => pull("https://hub/exec"))).includes("токен"), true, "pull: неверный токен — понятная ошибка");
+    globalThis.fetch = reply(JSON.stringify({ empty: true }));
+    eq(await pull("https://hub/exec"), null, "pull: пустой хаб — null");
+    globalThis.fetch = reply("not found", 404);
+    eq((await outcome(() => pull("https://hub/exec"))).includes("404"), true, "pull: 404 — ошибка");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
 // ---- итог ----
-console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);
-if (failed > 0) process.exit(1);
+hubTests().then(() => {
+  console.log(`\n${passed} проверок пройдено, ${failed} провалено.`);
+  if (failed > 0) process.exit(1);
+});

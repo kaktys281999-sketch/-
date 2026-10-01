@@ -128,6 +128,7 @@ export interface Template {
   category: string;
   amount: number; // 0 — спросить при добавлении
   accountId: string;
+  toAccountId?: string; // получатель, если шаблон — перевод
   note: string;
 }
 

@@ -6,6 +6,12 @@ import { TYPES, getTypeDef } from "@/lib/categories";
 import { useStore, creditCardDebt, creditCardAvailable } from "@/lib/store";
 import { todayISO, formatMoney } from "@/lib/format";
 import { getLastUsed, setLastUsed } from "@/lib/lastUsed";
+import {
+  OperationDraft,
+  freshDraft,
+  pickToAccount,
+  rememberedDate,
+} from "@/lib/draft";
 import { accountColor } from "@/lib/accounts";
 
 const chipCls = (active: boolean) =>
@@ -14,36 +20,6 @@ const chipCls = (active: boolean) =>
       ? "bg-brand text-white"
       : "bg-black/[0.06] text-slate-700 dark:bg-white/10 dark:text-slate-200"
   }`;
-
-export interface OperationDraft {
-  date: string;
-  type: OpType;
-  category: string;
-  amount: string;
-  accountId: string;
-  toAccountId: string;
-  note: string;
-}
-
-// Дефолт новой операции: расход «Продукты» — самое частое действие
-const DEFAULT_TYPE: OpType = "expense_personal";
-
-function rememberedDate(date?: string): string {
-  return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayISO();
-}
-
-function emptyDraft(defaultAccount: string, date?: string): OperationDraft {
-  const def = getTypeDef(DEFAULT_TYPE);
-  return {
-    date: rememberedDate(date),
-    type: def.type,
-    category: def.categories[0].name, // «Продукты / еда / вода»
-    amount: "",
-    accountId: defaultAccount,
-    toAccountId: "",
-    note: "",
-  };
-}
 
 // Дата «вчера» в ISO
 function yesterdayISO(): string {
@@ -97,41 +73,25 @@ export function OperationForm({
 
   // Свежий черновик: подставляем последний использованный набор,
   // иначе — дефолт «Расход / Продукты». Счёт берём из памяти, если он есть.
-  const makeFresh = (): OperationDraft => {
-    const last = getLastUsed();
-    // скрытый из формы тип (кредиты/займы) не подставляем
-    if (!last || last.type === "credit_loan") {
-      return emptyDraft(defaultAccount, last?.date);
-    }
-    const def = getTypeDef(last.type);
-    const category = def.categories.some((c) => c.name === last.category)
-      ? last.category
-      : def.categories[0].name;
-    const accountId = state.accounts.some((a) => a.id === last.accountId)
-      ? last.accountId
-      : defaultAccount;
-    return {
-      date: rememberedDate(last.date),
-      type: last.type,
-      category,
-      amount: "",
-      accountId,
-      toAccountId: "",
-      note: "",
-    };
-  };
+  const makeFresh = (): OperationDraft =>
+    freshDraft(getLastUsed(), state.accounts, defaultAccount, todayISO());
 
   const [draft, setDraft] = useState<OperationDraft>(() => {
     const src = initial ?? prefill;
     if (src) {
       const last = getLastUsed();
+      const type = src.type ?? TYPES[0].type;
+      const accountId = src.accountId ?? defaultAccount;
       return {
-        date: initial?.date ?? src.date ?? rememberedDate(last?.date),
-        type: src.type ?? TYPES[0].type,
-        category: src.category ?? getTypeDef(src.type ?? TYPES[0].type).categories[0].name,
+        date: initial?.date ?? src.date ?? rememberedDate(last?.date, todayISO()),
+        type,
+        category: src.category ?? getTypeDef(type).categories[0]?.name ?? "",
         amount: src.amount ? String(src.amount) : "",
-        accountId: src.accountId ?? defaultAccount,
-        toAccountId: src.toAccountId ?? "",
+        accountId,
+        toAccountId:
+          type === "transfer"
+            ? pickToAccount(state.accounts, accountId, src.toAccountId)
+            : "",
         note: src.note ?? "",
       };
     }
@@ -171,6 +131,7 @@ export function OperationForm({
       category: draft.category,
       amount: Number.isNaN(amount) ? 0 : amount,
       accountId: draft.accountId,
+      ...(draft.type === "transfer" ? { toAccountId: draft.toAccountId } : {}),
       note: draft.note.trim(),
     });
   }, [draft, onDraftChange]);
@@ -181,10 +142,7 @@ export function OperationForm({
         ...d,
         type,
         category: "",
-        toAccountId:
-          d.toAccountId && d.toAccountId !== d.accountId
-            ? d.toAccountId
-            : state.accounts.find((a) => a.id !== d.accountId)?.id ?? "",
+        toAccountId: pickToAccount(state.accounts, d.accountId, d.toAccountId),
       }));
       return;
     }
@@ -200,11 +158,11 @@ export function OperationForm({
   const pickFrom = (id: string) =>
     setDraft((d) => {
       if (d.type !== "transfer") return { ...d, accountId: id };
-      const to =
-        d.toAccountId && d.toAccountId !== id
-          ? d.toAccountId
-          : state.accounts.find((a) => a.id !== id)?.id ?? "";
-      return { ...d, accountId: id, toAccountId: to };
+      return {
+        ...d,
+        accountId: id,
+        toAccountId: pickToAccount(state.accounts, id, d.toAccountId),
+      };
     });
 
   function handleSubmit(e: React.FormEvent) {
@@ -235,8 +193,9 @@ export function OperationForm({
       // запоминаем набор для следующего раза и сбрасываем форму
       setLastUsed({
         type: draft.type,
-        category: draft.category,
+        category: isTransfer ? "" : draft.category,
         accountId: draft.accountId,
+        ...(isTransfer ? { toAccountId: draft.toAccountId } : {}),
         date: draft.date,
       });
       setDraft(makeFresh());
@@ -253,15 +212,20 @@ export function OperationForm({
   const toAccount = state.accounts.find((a) => a.id === draft.toAccountId);
   const fromCreditCard = fromAccount?.kind === "credit_card";
   const toCreditCard = toAccount?.kind === "credit_card";
+  // При редактировании подсказки считаем без самой редактируемой операции,
+  // иначе её сумма учитывалась бы дважды: в текущем долге и в черновике.
+  const hintState = initial
+    ? { ...state, operations: state.operations.filter((o) => o.id !== initial.id) }
+    : state;
   const fromCardDebt = fromCreditCard
-    ? creditCardDebt(state, draft.accountId)
+    ? creditCardDebt(hintState, draft.accountId)
     : 0;
-  const toCardDebt = toCreditCard ? creditCardDebt(state, draft.toAccountId) : 0;
+  const toCardDebt = toCreditCard ? creditCardDebt(hintState, draft.toAccountId) : 0;
   const fromCardAvailable = fromCreditCard
-    ? creditCardAvailable(state, draft.accountId)
+    ? creditCardAvailable(hintState, draft.accountId)
     : 0;
   const toCardAvailable = toCreditCard
-    ? creditCardAvailable(state, draft.toAccountId)
+    ? creditCardAvailable(hintState, draft.toAccountId)
     : 0;
 
   return (

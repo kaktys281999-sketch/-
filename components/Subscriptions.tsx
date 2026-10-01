@@ -17,7 +17,9 @@ import {
   formatMoney,
   formatDateShort,
   monthKey,
+  monthKeyFromISO,
   monthLabel,
+  shiftMonth,
   todayISO,
 } from "@/lib/format";
 import { Card, NumberInput } from "./ui";
@@ -319,12 +321,34 @@ function SubForm({
   const [day, setDay] = useState(String(preset.dayOfMonth ?? 1));
   const [accountId, setAccountId] = useState(defaultAccount);
   const [error, setError] = useState("");
+  // null — решает автоматика (нашли ли похожую трату в этом месяце)
+  const [paidOverride, setPaidOverride] = useState<boolean | null>(null);
 
   const fieldCls =
     "w-full rounded-xl bg-black/[0.04] px-3.5 py-3 outline-none focus:ring-2 focus:ring-brand/40 dark:bg-white/[0.06] dark:text-slate-100";
   const labelCls =
     "block text-[13px] font-medium uppercase tracking-wide text-label-2 mb-2";
   const num = (s: string) => Math.abs(Number(s.replace(/\s/g, "").replace(",", ".")));
+
+  // Подписка, заведённая после своего числа, сразу считалась просроченной за
+  // текущий месяц, хотя обычно за него уже заплачено обычной тратой. Нажатие
+  // «Оплатить» записывало вторую такую же. Поэтому спрашиваем, а если в этом
+  // месяце уже есть похожая трата, по умолчанию начинаем со следующего месяца.
+  const today = todayISO();
+  const thisMonth = monthKeyFromISO(today);
+  const dayNum = Math.round(num(day));
+  const alreadyDue = dayNum >= 1 && dayNum <= Number(today.slice(8, 10));
+  const titleKey = title.trim().toLowerCase();
+  const similarThisMonth = state.operations.some(
+    (o) =>
+      !o.deleted &&
+      (o.type === "expense_personal" || o.type === "expense_work") &&
+      monthKeyFromISO(o.date) === thisMonth &&
+      o.category === category &&
+      ((titleKey !== "" && (o.note || "").trim().toLowerCase() === titleKey) ||
+        (num(amount) > 0 && o.amount === num(amount)))
+  );
+  const paidThisMonth = alreadyDue && (paidOverride ?? similarThisMonth);
 
   function submit() {
     const sum = num(amount);
@@ -338,7 +362,7 @@ function SubForm({
       amount: sum,
       accountId,
       dayOfMonth: d,
-      startMonth: monthKey(new Date()),
+      startMonth: paidThisMonth ? shiftMonth(thisMonth, 1) : thisMonth,
       note: title.trim(),
       kind: "subscription",
       active: true,
@@ -437,6 +461,26 @@ function SubForm({
             </div>
           </div>
 
+          {alreadyDue && (
+            <label className="flex items-start gap-2.5 text-[14px]">
+              <input
+                type="checkbox"
+                checked={paidThisMonth}
+                onChange={(e) => setPaidOverride(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+              />
+              <span>
+                За {monthLabel(thisMonth).toLowerCase()} уже оплачено — начать
+                со следующего месяца
+                {similarThisMonth && (
+                  <span className="block text-[13px] text-label-2">
+                    В этом месяце уже есть похожая трата
+                  </span>
+                )}
+              </span>
+            </label>
+          )}
+
           {error && (
             <p className="text-[13px] font-medium text-red-600 dark:text-red-400">
               {error}
@@ -503,6 +547,7 @@ function SubDetail({ rule, onClose }: { rule: RecurringRule; onClose: () => void
       amount: sum,
       accountId: payAccount,
       date: paidOp?.date,
+      month,
     });
     setPayError(false);
   }

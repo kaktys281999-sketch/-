@@ -30,7 +30,6 @@ import {
   formatDateShort,
   monthLabel,
   monthKey,
-  monthKeyFromISO,
   shiftMonth,
   daysUntil,
   relativeDayLabel,
@@ -57,6 +56,9 @@ type Reminder = {
   defaultAccountId: string;
   // Чем заполнить поле даты в форме оплаты. Пусто значит сегодня.
   defaultDate?: string;
+  // Месяц экземпляра подписки (YYYY-MM). Оплата помечает именно его, какую бы
+  // дату платежа ни выбрали в форме.
+  month?: string;
   actionLabel: string;
   onOpen?: () => void;
 };
@@ -76,8 +78,15 @@ export function Summary({
   onOpenSubscriptions?: () => void;
   onOpenSearch?: (query: string) => void;
 }) {
-  const { state, paySubscription, addCreditPayment, addDebtPayment, addOperation } =
-    useStore();
+  const {
+    state,
+    sync,
+    syncState,
+    paySubscription,
+    addCreditPayment,
+    addDebtPayment,
+    addOperation,
+  } = useStore();
   const [activeReminder, setActiveReminder] = useState<Reminder | null>(null);
   const onHand = totalOnHand(state);
   const summary = monthSummary(state, month);
@@ -120,12 +129,11 @@ export function Summary({
       kind: "subscription",
       targetId: s.rule.id,
       defaultAccountId: s.rule.accountId,
-      // Оплата создаёт операцию с id `rec-<правило>-<месяц ДАТЫ платежа>`.
-      // Для экземпляра следующего месяца сегодняшняя дата отметила бы
-      // оплаченным ТЕКУЩИЙ месяц, то есть не тот, и напоминание осталось бы
-      // висеть. Поэтому подставляем дату самого экземпляра.
-      defaultDate:
-        s.month === monthKeyFromISO(today) ? undefined : s.date,
+      // Оплата помечает месяц самого экземпляра (month), а дата в форме — это
+      // день, когда деньги реально ушли, по умолчанию сегодня. Раньше месяц
+      // брался из даты, поэтому для следующего месяца приходилось подставлять
+      // дату экземпляра, а исправленная вручную дата затирала чужой месяц.
+      month: s.month,
       actionLabel: "Оплатить",
       onOpen: onOpenSubscriptions,
     });
@@ -194,7 +202,7 @@ export function Summary({
 
   function submitReminderPayment(r: Reminder, amount: number, accountId: string, date: string) {
     if (r.kind === "subscription") {
-      paySubscription(r.targetId, { amount, accountId, date });
+      paySubscription(r.targetId, { amount, accountId, date, month: r.month });
     } else if (r.kind === "credit") {
       addCreditPayment(r.targetId, { amount, accountId, date });
     } else if (r.kind === "debt") {
@@ -244,6 +252,21 @@ export function Summary({
 
   return (
     <div className="space-y-4 md:grid md:grid-cols-2 md:items-start md:gap-4 md:space-y-0">
+      {/* Без синхронизации данные живут только в этом браузере. Так выглядел
+          «не тот адрес»: другое устройство или установленная иконка показывали
+          свои, чужие цифры. */}
+      {!sync.url.trim() && (
+        <div className="rounded-2xl bg-amber-50 p-4 text-[14px] leading-relaxed text-amber-800 dark:bg-amber-950/30 dark:text-amber-200 md:col-span-2">
+          Синхронизация не настроена — здесь только данные этого устройства.
+          Вставьте ссылку хаба с токеном в «Настройки → Синхронизация».
+        </div>
+      )}
+      {sync.url.trim() && syncState.status === "error" && (
+        <div className="rounded-2xl bg-amber-50 p-4 text-[14px] leading-relaxed text-amber-800 dark:bg-amber-950/30 dark:text-amber-200 md:col-span-2">
+          Не удалось синхронизироваться: {syncState.message}. Изменения сохранены
+          на этом устройстве и уйдут в таблицу при следующей удачной попытке.
+        </div>
+      )}
       {!hasData && (
         <div className="rounded-2xl bg-brand p-4 text-[14px] leading-relaxed text-white md:col-span-2">
           Привет! Здесь будет ваша сводка. Добавьте первую операцию во вкладке
@@ -286,6 +309,9 @@ export function Summary({
         <div className="space-y-2 md:col-span-2">
           {activeReminder && (
             <ReminderPaymentPanel
+              // Ключ обязателен: без него при переходе к другому напоминанию
+              // панель сохраняла сумму, счёт и дату от предыдущего.
+              key={activeReminder.key}
               reminder={activeReminder}
               accounts={state.accounts}
               onCancel={() => setActiveReminder(null)}
@@ -1100,9 +1126,8 @@ function ReminderPaymentPanel({
         ? `платёж ${formatMoney(reminder.amount)}`
         : `обычно ${formatMoney(reminder.amount)}`;
 
-  const [amountText, setAmountText] = useState(
-    manualAmount ? "" : String(Math.round(reminder.amount))
-  );
+  const exactAmount = String(Math.round(reminder.amount * 100) / 100);
+  const [amountText, setAmountText] = useState(manualAmount ? "" : exactAmount);
   const [accountId, setAccountId] = useState(initialAccount);
   const [date, setDate] = useState(reminder.defaultDate ?? todayISO());
   const [error, setError] = useState("");
@@ -1122,7 +1147,7 @@ function ReminderPaymentPanel({
       setError("Введите сумму больше нуля");
       return;
     }
-    if (!accountId) {
+    if (!accountId || !accountOptions.some((a) => a.id === accountId)) {
       setError("Выберите счёт");
       return;
     }
@@ -1176,7 +1201,7 @@ function ReminderPaymentPanel({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => setAmountText(String(Math.round(reminder.amount)))}
+            onClick={() => setAmountText(exactAmount)}
             className={chip(false)}
           >
             {cardPayment

@@ -8,6 +8,7 @@ import {
   Transfer,
   Account,
 } from "./types";
+import { restoreRecurringIds } from "./calc";
 
 // Формат данных, которыми приложение обменивается с Google-таблицей
 export interface SyncPayload {
@@ -81,7 +82,7 @@ export function toPayload(s: AppState): SyncPayload {
 export function fromPayload(p: SyncPayload): AppState {
   return {
     accounts: p.accounts,
-    operations: p.operations,
+    operations: restoreRecurringIds(p.operations, p.recurring ?? []),
     transfers: p.transfers ?? [],
     credits: resolveCredits(p.credits, p.credit),
     goal: p.goal,
@@ -233,9 +234,14 @@ export interface SyncConfig {
   auto: boolean;
 }
 
-// Ссылка веб-приложения Google Apps Script по умолчанию — зашита в приложение,
-// чтобы синхронизация работала без ручного ввода в настройках.
-export const DEFAULT_SYNC_URL =
+// Ссылки по умолчанию нет. Раньше здесь была зашита ссылка первого хаба без
+// токена; тот деплой удалён (отвечает 404), а нынешний хаб без токена любой
+// запрос отклоняет. Ссылку с токеном вставляют в Настройках → Синхронизация.
+export const DEFAULT_SYNC_URL = "";
+
+// Та самая удалённая ссылка: на устройствах она могла остаться в сохранённых
+// настройках. Считаем её «не настроено», чтобы не долбиться в 404.
+export const LEGACY_DEAD_SYNC_URL =
   "https://script.google.com/macros/s/AKfycbxEUm8i2lhjmVzhKVFtdatnH7rPrParDsTaty3yaN39JXhxRWGbq-LL0KxVm17qYvTA/exec";
 
 export const EMPTY_SYNC: SyncConfig = { url: DEFAULT_SYNC_URL, auto: true };
@@ -249,6 +255,17 @@ function isValidPayload(d: unknown): d is SyncPayload {
   );
 }
 
+// Человеческое сообщение об ошибке хаба. Хаб отвечает HTTP 200 даже на отказ,
+// а причину пишет в {ok:false, error}.
+export function hubErrorMessage(error: unknown): string {
+  const e = String(error ?? "");
+  if (e === "unauthorized") {
+    return "Хаб не принял токен: проверьте ссылку синхронизации (…/exec?token=…)";
+  }
+  if (/lock/i.test(e)) return "Хаб занят другим устройством, повторим позже";
+  return e ? `Хаб ответил ошибкой: ${e}` : "Хаб отклонил запрос";
+}
+
 // Загрузить состояние из таблицы (GET). Возвращает null, если таблица пустая.
 export async function pull(url: string): Promise<SyncPayload | null> {
   const sep = url.includes("?") ? "&" : "?";
@@ -257,8 +274,16 @@ export async function pull(url: string): Promise<SyncPayload | null> {
     redirect: "follow",
   });
   if (!res.ok) throw new Error(`Ошибка загрузки: HTTP ${res.status}`);
-  const data = await res.json();
-  if (data && data.empty) return null;
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error("Хаб вернул не данные, а страницу: проверьте ссылку синхронизации");
+  }
+  if (data && typeof data === "object" && (data as { ok?: unknown }).ok === false) {
+    throw new Error(hubErrorMessage((data as { error?: unknown }).error));
+  }
+  if (data && typeof data === "object" && (data as { empty?: unknown }).empty) return null;
   if (!isValidPayload(data)) throw new Error("Таблица вернула неверные данные");
   return data;
 }
@@ -272,13 +297,16 @@ export async function push(url: string, payload: SyncPayload): Promise<void> {
     redirect: "follow",
   });
   if (!res.ok) throw new Error(`Ошибка сохранения: HTTP ${res.status}`);
-  // Apps Script отвечает JSON {ok:true}; проверим мягко
+  // Хаб отвечает HTTP 200 и на отказ, поэтому успех — только явный {ok:true}.
+  // Раньше исключение бросалось внутри try и тут же глоталось, и отказ хаба
+  // (неверный токен, занятая блокировка) показывался как «Сохранено».
+  let data: unknown;
   try {
-    const data = await res.json();
-    if (data && data.ok === false) {
-      throw new Error(data.error || "Таблица отклонила сохранение");
-    }
+    data = await res.json();
   } catch {
-    // тело не JSON — для POST это допустимо, считаем успехом по HTTP 200
+    throw new Error("Хаб ответил не JSON: сохранение не подтверждено");
+  }
+  if (!data || typeof data !== "object" || (data as { ok?: unknown }).ok !== true) {
+    throw new Error(hubErrorMessage((data as { error?: unknown } | null)?.error));
   }
 }

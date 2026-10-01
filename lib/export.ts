@@ -35,7 +35,9 @@ export function operationsToCSV(state: AppState): string {
   const accName = (id: string) =>
     state.accounts.find((a) => a.id === id)?.name ?? id;
 
-  const header = ["Дата", "Тип", "Категория", "Сумма", "Счёт", "Заметка"];
+  // «Счёт-получатель» добавлен последним столбцом: без него перевод выглядел
+  // как расход со счёта в никуда, и сумма по счетам не сходилась.
+  const header = ["Дата", "Тип", "Категория", "Сумма", "Счёт", "Заметка", "Счёт-получатель"];
   const rows = state.operations
     .filter((o) => !o.deleted)
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
@@ -46,6 +48,7 @@ export function operationsToCSV(state: AppState): string {
       o.amount,
       accName(o.accountId),
       o.note ?? "",
+      o.type === "transfer" && o.toAccountId ? accName(o.toAccountId) : "",
     ]);
 
   return toCSV(header, rows);

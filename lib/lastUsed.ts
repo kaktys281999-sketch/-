@@ -6,6 +6,7 @@ export interface LastUsed {
   type: OpType;
   category: string;
   accountId: string;
+  toAccountId?: string; // счёт-получатель последнего перевода
   date?: string; // последняя введённая дата (ISO)
 }
 

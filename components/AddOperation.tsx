@@ -30,6 +30,7 @@ export function AddOperation({
       category: t.category,
       amount: t.amount,
       accountId: t.accountId,
+      toAccountId: t.toAccountId,
       note: t.note,
     });
     setFormKey((k) => k + 1); // перезапустить форму с новым префиллом
@@ -37,15 +38,24 @@ export function AddOperation({
 
   function saveAsTemplate() {
     if (!draft || draft.amount <= 0) return;
+    const isTransfer = draft.type === "transfer";
+    if (isTransfer && (!draft.toAccountId || draft.toAccountId === draft.accountId)) {
+      return;
+    }
+    const accName = (id?: string) =>
+      state.accounts.find((a) => a.id === id)?.name ?? "—";
     const title =
       draft.note?.trim() ||
-      `${draft.category} · ${formatMoney(draft.amount)}`;
+      (isTransfer
+        ? `${accName(draft.accountId)} → ${accName(draft.toAccountId)}`
+        : `${draft.category} · ${formatMoney(draft.amount)}`);
     addTemplate({
       title,
       type: draft.type,
-      category: draft.category,
+      category: isTransfer ? "" : draft.category,
       amount: draft.amount,
       accountId: draft.accountId,
+      ...(isTransfer ? { toAccountId: draft.toAccountId } : {}),
       note: draft.note,
     });
   }

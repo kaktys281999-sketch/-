@@ -31,6 +31,7 @@ import {
   creditAccountDelta,
   transferAccountDelta,
   dueRecurringOperations,
+  restoreRecurringIds,
 } from "./calc";
 // Денежные селекторы живут в ./calc (без React) — реэкспортируем для потребителей
 export * from "./calc";
@@ -38,6 +39,7 @@ import {
   SyncConfig,
   EMPTY_SYNC,
   DEFAULT_SYNC_URL,
+  LEGACY_DEAD_SYNC_URL,
   toPayload,
   fromPayload,
   mergeStates,
@@ -45,6 +47,7 @@ import {
   pull,
   push,
 } from "./sync";
+import { ensureAlfaAccounts } from "./accounts";
 
 const STORAGE_KEY = "finance-tracker-v1";
 const SYNC_KEY = "finance-tracker-sync-v1";
@@ -59,39 +62,20 @@ function transportTemplates(accountId: string): Template[] {
   ];
 }
 
-// Начальное состояние согласно ТЗ
+// Начальное состояние нового устройства. Намеренно пустое: раньше здесь были
+// балансы и кредит из ТЗ, и новое устройство без синхронизации показывало их как
+// настоящие, а кнопка «Сохранить» могла залить их в таблицу. Настоящие счета
+// приходят из хаба при первой синхронизации.
 const INITIAL_STATE: AppState = {
-  accounts: [
-    { id: "yandex", name: "Яндекс банк", baseBalance: 11937 },
-    { id: "sber", name: "Сбербанк", baseBalance: 879 },
-    { id: "tinkoff", name: "Тинькофф", baseBalance: 344 },
-    { id: "cash", name: "Наличные", baseBalance: 0 },
-  ],
+  accounts: [{ id: "cash", name: "Наличные", baseBalance: 0 }],
   operations: [],
   transfers: [],
-  credits: [
-    {
-      id: "credit-main",
-      name: "Кредит",
-      received: 30000,
-      receivedDate: "2026-05-26",
-      payment: 10921,
-      count: 3,
-      paymentDates: ["2026-06-26", "2026-07-26", "2026-08-26"],
-      accountId: "yandex",
-      payments: [],
-      updatedAt: 0,
-    },
-  ],
-  goal: {
-    name: "Квартира",
-    target: 40000,
-    saved: 0,
-  },
-  primaryAccountId: "yandex",
+  credits: [],
+  goal: { name: "", target: 0, saved: 0 },
+  primaryAccountId: "cash",
   budgets: {},
   budgetRollover: false,
-  templates: transportTemplates("yandex"),
+  templates: transportTemplates("cash"),
   seededTransportTpl: true,
   busDefaultApplied: true,
   recurring: [],
@@ -149,7 +133,7 @@ interface StoreContextValue {
   deleteRecurring: (id: string) => void;
   paySubscription: (
     ruleId: string,
-    opts?: { date?: string; accountId?: string; amount?: number }
+    opts?: { date?: string; accountId?: string; amount?: number; month?: string }
   ) => void;
   unpaySubscription: (ruleId: string, month: string) => void;
   // Долги
@@ -194,58 +178,68 @@ function loadState(): AppState {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return INITIAL_STATE;
-    const parsed = JSON.parse(raw) as Partial<AppState>;
-    // Разовая подсадка шаблонов транспорта (только если ещё не делали —
-    // удалённые пользователем шаблоны не возвращаем).
-    const primary =
-      parsed.primaryAccountId ?? INITIAL_STATE.primaryAccountId ?? "yandex";
-    let templates = parsed.templates ?? [];
-    let seededTransportTpl = parsed.seededTransportTpl ?? false;
-    if (!seededTransportTpl) {
-      const ids = new Set(templates.map((t) => t.id));
-      templates = [
-        ...templates,
-        ...transportTemplates(primary).filter((t) => !ids.has(t.id)),
-      ];
-      seededTransportTpl = true;
-    }
-    // Разовая установка суммы автобуса по умолчанию (55 ₽), если ещё «спросить»
-    let busDefaultApplied = parsed.busDefaultApplied ?? false;
-    if (!busDefaultApplied) {
-      templates = templates.map((t) =>
-        t.id === "tpl-bus" && t.amount === 0 ? { ...t, amount: 55 } : t
-      );
-      busDefaultApplied = true;
-    }
-    const deletedAccountIds = parsed.deletedAccountIds ?? {};
-    const accounts = ensureCashAccount(
-      parsed.accounts ?? INITIAL_STATE.accounts,
-      deletedAccountIds
-    );
-    const primaryAccountId = accounts.some((a) => a.id === parsed.primaryAccountId)
-      ? parsed.primaryAccountId
-      : accounts[0]?.id ?? INITIAL_STATE.primaryAccountId;
-    // Мягкое слияние, чтобы новые поля не ломали старые данные
-    return {
-      accounts,
-      operations: parsed.operations ?? INITIAL_STATE.operations,
-      transfers: parsed.transfers ?? [],
-      credits: migrateCredits(parsed),
-      goal: { ...INITIAL_STATE.goal, ...parsed.goal },
-      primaryAccountId,
-      budgets: parsed.budgets ?? {},
-      budgetRollover: parsed.budgetRollover ?? false,
-      templates,
-      seededTransportTpl,
-      busDefaultApplied,
-      recurring: parsed.recurring ?? [],
-      debts: parsed.debts ?? [],
-      deletedAccountIds,
-      updatedAt: parsed.updatedAt ?? 0,
-    };
+    return parseStoredState(raw);
   } catch {
     return INITIAL_STATE;
   }
+}
+
+// Разбор сохранённого состояния с аддитивными миграциями. Используется и при
+// запуске, и когда соседняя вкладка записала свои данные. Бросает исключение
+// на битом JSON.
+function parseStoredState(raw: string): AppState {
+  const parsed = JSON.parse(raw) as Partial<AppState>;
+  // Разовая подсадка шаблонов транспорта (только если ещё не делали —
+  // удалённые пользователем шаблоны не возвращаем).
+  const primary =
+    parsed.primaryAccountId ?? INITIAL_STATE.primaryAccountId ?? "yandex";
+  let templates = parsed.templates ?? [];
+  let seededTransportTpl = parsed.seededTransportTpl ?? false;
+  if (!seededTransportTpl) {
+    const ids = new Set(templates.map((t) => t.id));
+    templates = [
+      ...templates,
+      ...transportTemplates(primary).filter((t) => !ids.has(t.id)),
+    ];
+    seededTransportTpl = true;
+  }
+  // Разовая установка суммы автобуса по умолчанию (55 ₽), если ещё «спросить»
+  let busDefaultApplied = parsed.busDefaultApplied ?? false;
+  if (!busDefaultApplied) {
+    templates = templates.map((t) =>
+      t.id === "tpl-bus" && t.amount === 0 ? { ...t, amount: 55 } : t
+    );
+    busDefaultApplied = true;
+  }
+  const deletedAccountIds = parsed.deletedAccountIds ?? {};
+  const accounts = ensureAlfaAccounts(
+    ensureCashAccount(parsed.accounts ?? INITIAL_STATE.accounts, deletedAccountIds),
+    deletedAccountIds
+  );
+  const primaryAccountId = accounts.some((a) => a.id === parsed.primaryAccountId)
+    ? parsed.primaryAccountId
+    : accounts[0]?.id ?? INITIAL_STATE.primaryAccountId;
+  // Мягкое слияние, чтобы новые поля не ломали старые данные
+  return {
+    accounts,
+    operations: restoreRecurringIds(
+      parsed.operations ?? INITIAL_STATE.operations,
+      parsed.recurring ?? []
+    ),
+    transfers: parsed.transfers ?? [],
+    credits: migrateCredits(parsed),
+    goal: { ...INITIAL_STATE.goal, ...parsed.goal },
+    primaryAccountId,
+    budgets: parsed.budgets ?? {},
+    budgetRollover: parsed.budgetRollover ?? false,
+    templates,
+    seededTransportTpl,
+    busDefaultApplied,
+    recurring: parsed.recurring ?? [],
+    debts: parsed.debts ?? [],
+    deletedAccountIds,
+    updatedAt: parsed.updatedAt ?? 0,
+  };
 }
 
 // Кредиты из сохранённых данных с миграцией легаси-формата (один кредит).
@@ -268,9 +262,10 @@ function loadSyncConfig(): SyncConfig {
     const raw = window.localStorage.getItem(SYNC_KEY);
     if (!raw) return EMPTY_SYNC;
     const parsed = JSON.parse(raw);
-    // если ссылка не задана — подставляем зашитую по умолчанию
-    const url =
-      parsed.url && String(parsed.url).trim() ? parsed.url : DEFAULT_SYNC_URL;
+    // если ссылка не задана — подставляем зашитую по умолчанию (пустую);
+    // удалённую ссылку первого хаба считаем «не настроено»
+    const stored = parsed.url ? String(parsed.url).trim() : "";
+    const url = stored && stored !== LEGACY_DEAD_SYNC_URL ? stored : DEFAULT_SYNC_URL;
     return { ...EMPTY_SYNC, ...parsed, url };
   } catch {
     return EMPTY_SYNC;
@@ -296,49 +291,73 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   stateRef.current = state;
   const syncRef = useRef(sync);
   syncRef.current = sync;
-  // Флаг: применяем данные из таблицы — не отправлять их обратно
-  const applyingRemote = useRef(false);
-  // Стартовый pull завершён — до него авто-отправка запрещена (защита от обнуления)
-  const initialPullDone = useRef(false);
+  // Снимок (JSON формата хаба), о котором устройство и хаб уже договорились.
+  // Состояние, совпадающее с ним, отправлять незачем.
+  const lastSyncedJson = useRef<string | null>(null);
+  // Раунды синхронизации идут строго по одному; лишние просьбы склеиваются.
+  const syncChain = useRef<Promise<void>>(Promise.resolve());
+  const roundQueued = useRef(false);
+  const lastRoundAt = useRef(0);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Первый раунд после запуска закончился (успешно или нет). До него не
+  // догенерируем регулярные операции: правило могли удалить на другом устройстве.
+  const [firstSyncDone, setFirstSyncDone] = useState(false);
 
-  // Безопасная отправка: не затирать непустую таблицу пустыми операциями.
-  // Возвращает true, если запись выполнена.
-  const safePush = async (url: string, next: AppState): Promise<boolean> => {
-    // Опасен только случай «совсем нет записей» (новое/чистое устройство).
-    // Если есть надгробия (осознанное удаление/сброс) — массив непустой,
-    // их нужно отправить, чтобы изменения дошли до других устройств.
-    const hasLocalRecords =
-      next.operations.length > 0 ||
-      (next.transfers ?? []).length > 0 ||
-      (next.debts ?? []).length > 0 ||
-      (next.credits ?? []).length > 0 ||
-      (next.recurring ?? []).length > 0 ||
-      Object.keys(next.deletedAccountIds ?? {}).length > 0;
-
-    if (!hasLocalRecords) {
-      // локально вообще нет операций — проверим, есть ли что-то в таблице
-      try {
-        const remote = await pull(url);
-        const remoteLive = remote
-          ? remote.operations.filter((o) => !o.deleted).length +
-            (remote.transfers ?? []).filter((t) => !t.deleted).length +
-            (remote.debts ?? []).filter((d) => !d.deleted).length +
-            (remote.credits ?? []).filter((c) => !c.deleted).length +
-            (remote.recurring ?? []).filter((r) => !r.deleted).length +
-            Object.keys(remote.deletedAccountIds ?? {}).length
-          : 0;
-        if (remoteLive > 0) {
-          // в таблице есть данные, а у нас пусто — НЕ затираем
-          return false;
+  // Один раунд: забрать хаб → слить с локальным → применить → отправить итог.
+  // Раньше устройство отправляло своё состояние целиком, не заглядывая в хаб,
+  // и устаревшая вкладка или второй телефон молча затирали чужие операции.
+  const runRound = async (): Promise<void> => {
+    const url = syncRef.current.url.trim();
+    if (!url) return;
+    lastRoundAt.current = Date.now();
+    setSyncState((p) => ({ ...p, status: "syncing", message: "Синхронизация…" }));
+    try {
+      const remote = await pull(url);
+      const local = stateRef.current;
+      let merged = local;
+      let remoteJson: string | null = null;
+      if (remote) {
+        const remoteState = fromPayload(remote);
+        remoteJson = JSON.stringify(toPayload(remoteState));
+        merged = mergeStates(local, remoteState);
+        if (JSON.stringify(toPayload(merged)) !== JSON.stringify(toPayload(local))) {
+          // Функциональное обновление: правки, сделанные, пока шёл запрос,
+          // не затираются, а сливаются с пришедшим из хаба.
+          setState((cur) => mergeStates(cur, remoteState));
         }
-      } catch {
-        // не смогли проверить — на всякий случай не пишем пустое
-        return false;
+      }
+      const payload = toPayload(merged);
+      const json = JSON.stringify(payload);
+      // Хаб уже содержит ровно это — не пишем зря.
+      if (json !== remoteJson) await push(url, payload);
+      lastSyncedJson.current = json;
+      setSyncState({ status: "ok", message: "Синхронизировано", lastSync: Date.now() });
+    } catch (e) {
+      setSyncState({
+        status: "error",
+        message: e instanceof Error ? e.message : "Ошибка синхронизации",
+        lastSync: null,
+      });
+      // Повторим сами: раньше неудачная отправка больше не повторялась, пока
+      // не случится следующая правка.
+      if (syncRef.current.auto && !retryTimer.current) {
+        retryTimer.current = setTimeout(() => {
+          retryTimer.current = null;
+          void requestRound();
+        }, 30000);
       }
     }
-    await push(url, toPayload(next));
-    return true;
+  };
+
+  const requestRound = (): Promise<void> => {
+    if (roundQueued.current) return syncChain.current;
+    roundQueued.current = true;
+    syncChain.current = syncChain.current.then(async () => {
+      roundQueued.current = false;
+      await runRound();
+    });
+    return syncChain.current;
   };
 
   // Загрузка локальных данных и конфигурации синхронизации
@@ -348,15 +367,48 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setHydrated(true);
   }, []);
 
-  // Сохранение в localStorage
+  // Сохранение в localStorage. Пишем, только если содержимое изменилось: иначе
+  // две открытые вкладки перекидывали бы друг другу одно и то же бесконечно.
   useEffect(() => {
     if (!hydrated) return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const json = JSON.stringify(state);
+    try {
+      if (window.localStorage.getItem(STORAGE_KEY) !== json) {
+        window.localStorage.setItem(STORAGE_KEY, json);
+      }
+    } catch {
+      // переполнение или приватный режим — данные остаются в памяти и в хабе
+    }
   }, [state, hydrated]);
 
-  // Догенерировать операции по регулярным правилам (при запуске и смене правил)
+  // Другая вкладка этого же браузера сохранила свои данные — сливаем их с
+  // нашими. Раньше вкладка со старым состоянием затирала операции, добавленные
+  // в соседней, и в localStorage, и в хабе.
   useEffect(() => {
     if (!hydrated) return;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY || !e.newValue) return;
+      let other: AppState;
+      try {
+        other = parseStoredState(e.newValue);
+      } catch {
+        return;
+      }
+      setState((cur) => {
+        const merged = mergeStates(cur, other);
+        return JSON.stringify(merged) === JSON.stringify(cur) ? cur : merged;
+      });
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [hydrated]);
+
+  // Догенерировать операции по регулярным правилам (после первой синхронизации
+  // и при смене правил). Метку времени документа не трогаем: эти операции
+  // одинаковы на всех устройствах, а свежая метка заставила бы устаревшие
+  // настройки этого устройства победить при слиянии.
+  useEffect(() => {
+    if (!hydrated || !firstSyncDone) return;
     setState((s) => {
       const due = dueRecurringOperations(
         s.recurring ?? [],
@@ -365,123 +417,68 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         todayISO()
       );
       if (!due.length) return s;
-      return {
-        ...s,
-        operations: [...s.operations, ...due],
-        updatedAt: Date.now(),
-      };
+      return { ...s, operations: [...s.operations, ...due] };
     });
-  }, [hydrated, state.recurring]);
+  }, [hydrated, firstSyncDone, state.recurring]);
 
   useEffect(() => {
     if (!hydrated) return;
     window.localStorage.setItem(SYNC_KEY, JSON.stringify(sync));
   }, [sync, hydrated]);
 
-  // Применить данные из таблицы локально (без обратной отправки)
-  const applyRemote = (s: AppState) => {
-    applyingRemote.current = true;
-    setState(s);
-  };
+  // Ручная синхронизация (кнопка в шапке и в настройках). Всегда через слияние:
+  // «просто отправить своё» больше не бывает.
+  const pullNow = (): Promise<void> => requestRound();
+  const pushNow = (): Promise<void> => requestRound();
 
-  // Загрузить из таблицы и слить без потери данных
-  const pullNow = async () => {
-    const url = syncRef.current.url.trim();
-    if (!url) return;
-    setSyncState((p) => ({ ...p, status: "syncing", message: "Загрузка…" }));
-    try {
-      const remote = await pull(url);
-      if (remote) {
-        // Слияние локального и удалённого по операциям (без потери правок)
-        const merged = mergeStates(stateRef.current, fromPayload(remote));
-        applyRemote(merged);
-        // Отдадим результат слияния обратно
-        await push(url, toPayload(merged));
-      } else {
-        // В таблице пусто — зальём своё
-        await push(url, toPayload(stateRef.current));
-      }
-      initialPullDone.current = true;
-      setSyncState({
-        status: "ok",
-        message: "Синхронизировано",
-        lastSync: Date.now(),
-      });
-    } catch (e) {
-      setSyncState({
-        status: "error",
-        message: e instanceof Error ? e.message : "Ошибка синхронизации",
-        lastSync: null,
-      });
-    }
-  };
-
-  // Сохранить в таблицу
-  const pushNow = async () => {
-    const url = syncRef.current.url.trim();
-    if (!url) return;
-    setSyncState((p) => ({ ...p, status: "syncing", message: "Сохранение…" }));
-    try {
-      const wrote = await safePush(url, stateRef.current);
-      if (!wrote) {
-        setSyncState({
-          status: "error",
-          message: "В таблице есть данные — пустое не сохранено",
-          lastSync: null,
-        });
-        return;
-      }
-      setSyncState({
-        status: "ok",
-        message: "Сохранено в таблицу",
-        lastSync: Date.now(),
-      });
-    } catch (e) {
-      setSyncState({
-        status: "error",
-        message: e instanceof Error ? e.message : "Ошибка сохранения",
-        lastSync: null,
-      });
-    }
-  };
-
-  // При запуске: если настроена авто-синхронизация — подтянуть из таблицы
+  // При запуске: если настроена авто-синхронизация — сразу раунд
   useEffect(() => {
     if (!hydrated) return;
     if (sync.url.trim() && sync.auto) {
-      void pullNow();
+      void requestRound().finally(() => setFirstSyncDone(true));
+    } else {
+      setFirstSyncDone(true);
     }
     // запускаем один раз после гидрации
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
 
-  // Авто-отправка изменений в таблицу (с задержкой), кроме применённых из таблицы
+  // Вернулись в приложение или появилась сеть — подтянуть чужие изменения.
+  // PWA на телефоне живёт днями, и без этого видела бы только свои правки.
   useEffect(() => {
     if (!hydrated) return;
-    if (applyingRemote.current) {
-      applyingRemote.current = false;
-      return;
-    }
+    const wake = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!syncRef.current.url.trim() || !syncRef.current.auto) return;
+      if (Date.now() - lastRoundAt.current < 20000) return;
+      void requestRound();
+    };
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("online", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("online", wake);
+      window.removeEventListener("focus", wake);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
+
+  // Авто-синхронизация изменений (с задержкой). Состояние, о котором хаб уже
+  // знает (в том числе только что пришедшее из него), повторно не отправляем.
+  useEffect(() => {
+    if (!hydrated) return;
     if (!sync.url.trim() || !sync.auto) return;
-    // До завершения стартового pull не отправляем — иначе пустое состояние
-    // нового устройства может затереть таблицу
-    if (!initialPullDone.current) return;
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => {
-      void safePush(syncRef.current.url.trim(), stateRef.current).then((ok) => {
-        if (ok)
-          setSyncState({
-            status: "ok",
-            message: "Сохранено в таблицу",
-            lastSync: Date.now(),
-          });
-      });
+      if (JSON.stringify(toPayload(stateRef.current)) === lastSyncedJson.current) return;
+      void requestRound();
     }, 1500);
     return () => {
       if (pushTimer.current) clearTimeout(pushTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, hydrated]);
+  }, [state, hydrated, sync.auto]);
 
   const value = useMemo<StoreContextValue>(() => {
     const touch = <T extends Partial<AppState>>(patch: T) => ({
@@ -489,7 +486,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       updatedAt: Date.now(),
     });
 
+    // Перевод без получателя или «сам себе» деньги не двигает, а в списке
+    // выглядит как настоящий. Такие не записываем ни из какой формы.
+    const isBrokenTransfer = (op: Omit<Operation, "id">) =>
+      op.type === "transfer" &&
+      (!op.toAccountId || op.toAccountId === op.accountId);
+
     const addOperation = (op: Omit<Operation, "id">) => {
+      if (isBrokenTransfer(op)) return;
       const now = Date.now();
       setState((s) => ({
         ...s,
@@ -500,12 +504,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
 
     const updateOperation = (id: string, op: Omit<Operation, "id">) => {
+      if (isBrokenTransfer(op)) return;
       const now = Date.now();
       setState((s) => ({
         ...s,
         ...touch({
           operations: s.operations.map((o) =>
-            o.id === id ? { ...op, id, updatedAt: now } : o
+            o.id === id
+              ? {
+                  ...op,
+                  // Форма не знает о связи с подпиской. Без этого любое
+                  // редактирование оплаты подписки выкидывало её из истории
+                  // и из «потрачено на подписки».
+                  recurringId: op.recurringId ?? o.recurringId,
+                  id,
+                  updatedAt: now,
+                }
+              : o
           ),
         }),
       }));
@@ -560,7 +575,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ...touch({
             accounts: s.accounts.map((a) =>
               a.id === id
-                ? { ...a, baseBalance: currentBalance - deltaSum, updatedAt: now }
+                ? {
+                    ...a,
+                    baseBalance: Math.round((currentBalance - deltaSum) * 100) / 100,
+                    updatedAt: now,
+                  }
                 : a
             ),
           }),
@@ -627,9 +646,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               next.creditPaymentDay = clampPaymentDay(next.creditPaymentDay);
               next.creditLimit = Math.max(0, next.creditLimit ?? 0);
             } else {
+              // Лимит и день оплаты оставляем: у обычного счёта они ни на что
+              // не влияют, а при случайном двойном нажатии «Кредитка»
+              // вернутся как были, а не сбросятся на 25-е число и 0 ₽.
               next.kind = undefined;
-              next.creditPaymentDay = undefined;
-              next.creditLimit = undefined;
             }
             return next;
           }),
@@ -639,12 +659,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     // Переименовать счёт (id не меняется — операции не осиротеют)
     const renameAccount = (id: string, name: string) => {
+      if (!name.trim()) return;
       const now = Date.now();
       setState((s) => ({
         ...s,
         ...touch({
           accounts: s.accounts.map((a) =>
-            a.id === id ? { ...a, name, updatedAt: now } : a
+            a.id === id ? { ...a, name: name.trim(), updatedAt: now } : a
           ),
         }),
       }));
@@ -738,9 +759,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             : r
         );
 
-        const templates = (s.templates ?? []).map((t) =>
-          t.accountId === id ? { ...t, accountId: replacementId } : t
-        );
+        // Шаблон-перевод, у которого оба конца сошлись на одном счёте,
+        // бессмыслен: форма такой перевод всё равно не примет.
+        const templates = (s.templates ?? [])
+          .map((t) =>
+            t.accountId === id || t.toAccountId === id
+              ? {
+                  ...t,
+                  accountId: remap(t.accountId),
+                  toAccountId: t.toAccountId ? remap(t.toAccountId) : t.toAccountId,
+                }
+              : t
+          )
+          .filter((t) => !(t.type === "transfer" && t.toAccountId === t.accountId));
 
         const accounts = s.accounts
           .filter((a) => a.id !== id)
@@ -964,15 +995,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     // Оплатить подписку: создаёт/обновляет операцию с детерминированным id
     // (rec-<rule>-<month>) — оплата за конкретный месяц, без дублей.
+    // Месяц экземпляра передаётся отдельно от даты платежа. Раньше он брался из
+    // даты, и октябрьская аренда, оплаченная 29 сентября, затирала сентябрьскую
+    // оплату, а октябрь так и оставался неоплаченным.
     const paySubscription = (
       ruleId: string,
-      opts?: { date?: string; accountId?: string; amount?: number }
+      opts?: { date?: string; accountId?: string; amount?: number; month?: string }
     ) => {
       setState((s) => {
         const rule = (s.recurring ?? []).find((r) => r.id === ruleId);
         if (!rule) return s;
         const date = opts?.date ?? todayISO();
-        const id = `rec-${ruleId}-${date.slice(0, 7)}`;
+        const month = /^\d{4}-\d{2}$/.test(opts?.month ?? "")
+          ? (opts!.month as string)
+          : date.slice(0, 7);
+        const id = `rec-${ruleId}-${month}`;
         const op: Operation = {
           id,
           date,
