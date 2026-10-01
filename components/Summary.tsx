@@ -22,6 +22,7 @@ import {
   creditCardDebt,
   nextCreditCardDueDate,
   creditCardAvailable,
+  creditCardOverpay,
 } from "@/lib/store";
 import type { PaymentCalendarItem } from "@/lib/store";
 import {
@@ -374,7 +375,7 @@ export function Summary({
           <span>
             <span className="block text-[15px] font-medium">На руках</span>
             <span className="block text-[12px] text-label-3">
-              обычные счета, без кредиток
+              свои деньги: счета и переплата по кредиткам
             </span>
           </span>
           <span className="text-[17px] font-semibold">{formatMoney(onHand)}</span>
@@ -400,12 +401,13 @@ export function Summary({
               Кредитки
             </div>
             <div className="mt-0.5 text-[12px] normal-case tracking-normal text-label-3">
-              траты меняют долг и остаток, не сумму на руках
+              траты меняют долг; в «На руках» входит только переплата
             </div>
           </div>
         )}
         {creditCardAccounts.map((a) => {
           const debt = creditCardDebt(state, a.id);
+          const overpay = creditCardOverpay(state, a.id);
           const limit = Math.max(0, a.creditLimit ?? 0);
           const available = creditCardAvailable(state, a.id);
           return (
@@ -421,7 +423,9 @@ export function Summary({
                 <span className="min-w-0">
                   <span className="block truncate">{a.name}</span>
                   <span className="block truncate text-[12px] text-label-3">
-                    долг {formatMoney(debt)}
+                    {overpay > 0
+                      ? `переплата ${formatMoney(overpay)}`
+                      : `долг ${formatMoney(debt)}`}
                     {limit > 0 ? ` · лимит ${formatMoney(limit)}` : ""}
                   </span>
                 </span>

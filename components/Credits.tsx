@@ -593,8 +593,9 @@ function CreditDetail({ credit, onClose }: { credit: Credit; onClose: () => void
                   Платежей
                 </label>
                 <NumberInput
+                  integer
                   value={credit.count}
-                  onCommit={(n) => updateCredit(credit.id, { count: n })}
+                  onCommit={(n) => updateCredit(credit.id, { count: Math.max(1, Math.round(n)) })}
                   className={fieldCls}
                 />
               </div>

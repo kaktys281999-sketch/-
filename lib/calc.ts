@@ -278,14 +278,14 @@ export function paymentCalendar(
   for (const c of activeCredits(state)) {
     const scheduledDates =
       c.count > 0 ? c.paymentDates.slice(0, c.count) : c.paymentDates;
-    const paidTotal = c.payments.reduce((sum, p) => sum + p.amount, 0);
+    // в копейках, как в creditInstallments, чтобы календарь и карточка кредита
+    // не расходились из-за хвостов float
+    const paidK = Math.round(c.payments.reduce((sum, p) => sum + p.amount, 0) * 100);
+    const payK = Math.round(c.payment * 100);
     for (const [index, date] of scheduledDates.entries()) {
-      if (monthKeyFromISO(date) !== month || c.payment <= 0) continue;
-      const paidTowardThisPayment = Math.min(
-        c.payment,
-        Math.max(0, paidTotal - c.payment * index)
-      );
-      const remaining = Math.max(0, round2(c.payment - paidTowardThisPayment));
+      if (monthKeyFromISO(date) !== month || payK <= 0) continue;
+      const paidTowardThisK = Math.min(payK, Math.max(0, paidK - payK * index));
+      const remaining = (payK - paidTowardThisK) / 100;
       items.push({
         key: `credit-${c.id}-${index}`,
         date,
@@ -919,22 +919,37 @@ export interface CreditView {
 }
 
 // Расчёты по одному кредиту
+// Сколько целых платежей покрыто внесённой суммой и сколько внесено сверх них.
+// Считаем в целых копейках: 10 платежей по 2 916,67 в float дают
+// 29166,699999999997, и floor насчитывал 9 — напоминание «просрочено · 0 ₽»
+// висело бы вечно на уже оплаченном платеже.
+export function creditInstallments(
+  c: Credit
+): { paid: number; paidCount: number; paidTowardNext: number } {
+  const paidK = Math.round(c.payments.reduce((sum, p) => sum + p.amount, 0) * 100);
+  const payK = Math.round(c.payment * 100);
+  if (payK <= 0) {
+    return { paid: paidK / 100, paidCount: Math.min(c.count, c.payments.length), paidTowardNext: 0 };
+  }
+  const paidCount = Math.min(c.count, Math.floor(paidK / payK));
+  return {
+    paid: paidK / 100,
+    paidCount,
+    paidTowardNext: Math.max(0, paidK - payK * paidCount) / 100,
+  };
+}
+
 export function creditView(c: Credit): CreditView {
   const totalDue = c.payment * c.count;
-  const paid = c.payments.reduce((sum, p) => sum + p.amount, 0);
-  const remaining = Math.max(0, round2(totalDue - paid));
   // «X из N» считаем по сумме (целые платежи), а не по числу записей —
   // иначе частичные платежи ложно отметили бы кредит погашенным.
-  const paidCount =
-    c.payment > 0
-      ? Math.min(c.count, Math.floor(paid / c.payment))
-      : Math.min(c.count, c.payments.length);
+  const { paid, paidCount, paidTowardNext } = creditInstallments(c);
+  const remaining = Math.max(0, round2(totalDue - paid));
   const isPaidOff = remaining <= 0;
   const nextPaymentDate = isPaidOff ? null : c.paymentDates[paidCount] ?? null;
   // Сколько осталось внести по ближайшему платежу: частичная оплата уже
   // уменьшила его. Раньше здесь всегда был полный платёж, и напоминание
   // предлагало переплатить.
-  const paidTowardNext = c.payment > 0 ? Math.max(0, paid - c.payment * paidCount) : 0;
   const nextPaymentAmount = isPaidOff
     ? 0
     : c.payment > 0

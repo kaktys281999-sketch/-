@@ -330,7 +330,7 @@ export function aiContextMarkdown(state: AppState, today: string): string {
         ["Операций", liveOperations.length],
         ["Обычных счетов", regularAccounts.length],
         ["Кредиток", creditCards.length],
-        ["Собственные деньги на обычных счетах", money(totalOnHand(state))],
+        ["Собственные деньги (счета + переплата по кредиткам)", money(totalOnHand(state))],
         ["Долг по кредитам/рассрочкам", money(creditTotals.remaining)],
         [
           "Долг по кредиткам",

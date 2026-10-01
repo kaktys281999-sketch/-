@@ -43,6 +43,7 @@ import {
   toPayload,
   fromPayload,
   mergeStates,
+  canonicalJson,
   legacyCreditToCredit,
   pull,
   push,
@@ -212,8 +213,8 @@ function parseStoredState(raw: string): AppState {
     busDefaultApplied = true;
   }
   const deletedAccountIds = parsed.deletedAccountIds ?? {};
-  const accounts = ensureAlfaAccounts(
-    ensureCashAccount(parsed.accounts ?? INITIAL_STATE.accounts, deletedAccountIds),
+  const accounts = ensureCashAccount(
+    parsed.accounts ?? INITIAL_STATE.accounts,
     deletedAccountIds
   );
   const primaryAccountId = accounts.some((a) => a.id === parsed.primaryAccountId)
@@ -239,6 +240,7 @@ function parseStoredState(raw: string): AppState {
     debts: parsed.debts ?? [],
     deletedAccountIds,
     updatedAt: parsed.updatedAt ?? 0,
+    settingsUpdatedAt: parsed.settingsUpdatedAt ?? 0,
   };
 }
 
@@ -270,6 +272,28 @@ function loadSyncConfig(): SyncConfig {
   } catch {
     return EMPTY_SYNC;
   }
+}
+
+// Разовое заведение счетов Альфа-Банка на этом устройстве (флаг локальный).
+const ALFA_SEEDED_KEY = "finance-alfa-seeded-v1";
+function alfaSeeded(): boolean {
+  try {
+    return window.localStorage.getItem(ALFA_SEEDED_KEY) === "1";
+  } catch {
+    return true; // хранилище недоступно — лучше не заводить, чем заводить на каждом запуске
+  }
+}
+function markAlfaSeeded(): void {
+  try {
+    window.localStorage.setItem(ALFA_SEEDED_KEY, "1");
+  } catch {
+    // игнорируем
+  }
+}
+function withAlfa(s: AppState, on: boolean): AppState {
+  if (!on) return s;
+  const accounts = ensureAlfaAccounts(s.accounts, s.deletedAccountIds ?? {});
+  return accounts === s.accounts ? s : { ...s, accounts };
 }
 
 function uid(): string {
@@ -315,22 +339,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     try {
       const remote = await pull(url);
       const local = stateRef.current;
-      let merged = local;
+      // Счета Альфы заводим на уже слитом состоянии: так видны удаления и
+      // имена, пришедшие из таблицы.
+      const seedAlfa = !alfaSeeded();
+      let merged = withAlfa(local, seedAlfa);
       let remoteJson: string | null = null;
       if (remote) {
         const remoteState = fromPayload(remote);
-        remoteJson = JSON.stringify(toPayload(remoteState));
-        merged = mergeStates(local, remoteState);
-        if (JSON.stringify(toPayload(merged)) !== JSON.stringify(toPayload(local))) {
+        remoteJson = canonicalJson(remoteState);
+        merged = withAlfa(mergeStates(local, remoteState), seedAlfa);
+        if (canonicalJson(merged) !== canonicalJson(local)) {
           // Функциональное обновление: правки, сделанные, пока шёл запрос,
           // не затираются, а сливаются с пришедшим из хаба.
-          setState((cur) => mergeStates(cur, remoteState));
+          setState((cur) => withAlfa(mergeStates(cur, remoteState), seedAlfa));
         }
+      } else if (merged !== local) {
+        setState((cur) => withAlfa(cur, seedAlfa));
       }
-      const payload = toPayload(merged);
-      const json = JSON.stringify(payload);
-      // Хаб уже содержит ровно это — не пишем зря.
-      if (json !== remoteJson) await push(url, payload);
+      const json = canonicalJson(merged);
+      // Хаб уже содержит то же самое (порядок записей не важен) — не пишем зря.
+      if (json !== remoteJson) await push(url, toPayload(merged));
+      if (seedAlfa) markAlfaSeeded();
       lastSyncedJson.current = json;
       setSyncState({ status: "ok", message: "Синхронизировано", lastSync: Date.now() });
     } catch (e) {
@@ -396,7 +425,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       setState((cur) => {
         const merged = mergeStates(cur, other);
-        return JSON.stringify(merged) === JSON.stringify(cur) ? cur : merged;
+        return canonicalJson(merged) === canonicalJson(cur) ? cur : merged;
       });
     };
     window.addEventListener("storage", onStorage);
@@ -437,6 +466,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (sync.url.trim() && sync.auto) {
       void requestRound().finally(() => setFirstSyncDone(true));
     } else {
+      // Синхронизации нет — заводим счета Альфы сразу, по локальным данным.
+      if (!alfaSeeded()) {
+        setState((cur) => withAlfa(cur, true));
+        markAlfaSeeded();
+      }
       setFirstSyncDone(true);
     }
     // запускаем один раз после гидрации
@@ -471,7 +505,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!sync.url.trim() || !sync.auto) return;
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => {
-      if (JSON.stringify(toPayload(stateRef.current)) === lastSyncedJson.current) return;
+      if (canonicalJson(stateRef.current) === lastSyncedJson.current) return;
       void requestRound();
     }, 1500);
     return () => {
@@ -485,6 +519,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ...patch,
       updatedAt: Date.now(),
     });
+    // Правка настроек: отдельная метка, по ней настройки побеждают при слиянии.
+    const touchSettings = <T extends Partial<AppState>>(patch: T) => {
+      const now = Date.now();
+      return { ...patch, updatedAt: now, settingsUpdatedAt: now };
+    };
 
     // Перевод без получателя или «сам себе» деньги не двигает, а в списке
     // выглядит как настоящий. Такие не записываем ни из какой формы.
@@ -623,7 +662,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         };
         return {
           ...s,
-          ...touch({
+          ...(opts?.makePrimary ? touchSettings : touch)({
             accounts: [...s.accounts, account],
             primaryAccountId: opts?.makePrimary ? id : s.primaryAccountId,
           }),
@@ -787,7 +826,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
         return {
           ...s,
-          ...touch({
+          ...touchSettings({
             accounts,
             primaryAccountId:
               s.primaryAccountId === id ? replacementId : s.primaryAccountId,
@@ -834,7 +873,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
 
     const updateGoal = (goal: Partial<Goal>) => {
-      setState((s) => ({ ...s, ...touch({ goal: { ...s.goal, ...goal } }) }));
+      setState((s) => ({ ...s, ...touchSettings({ goal: { ...s.goal, ...goal } }) }));
     };
 
     // ===== Кредиты =====
@@ -922,11 +961,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
 
     const setPrimaryAccount = (id: string) => {
-      setState((s) => ({ ...s, ...touch({ primaryAccountId: id }) }));
+      setState((s) => ({ ...s, ...touchSettings({ primaryAccountId: id }) }));
     };
 
     const setBudgetRollover = (on: boolean) => {
-      setState((s) => ({ ...s, ...touch({ budgetRollover: on }) }));
+      setState((s) => ({ ...s, ...touchSettings({ budgetRollover: on }) }));
     };
 
     // Установить/убрать месячный лимит по категории (0 — убрать)
@@ -935,21 +974,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const budgets = { ...(s.budgets ?? {}) };
         if (limit > 0) budgets[category] = limit;
         else delete budgets[category];
-        return { ...s, ...touch({ budgets }) };
+        return { ...s, ...touchSettings({ budgets }) };
       });
     };
 
     const addTemplate = (t: Omit<Template, "id">) => {
       setState((s) => ({
         ...s,
-        ...touch({ templates: [...(s.templates ?? []), { ...t, id: uid() }] }),
+        ...touchSettings({ templates: [...(s.templates ?? []), { ...t, id: uid() }] }),
       }));
     };
 
     const deleteTemplate = (id: string) => {
       setState((s) => ({
         ...s,
-        ...touch({
+        ...touchSettings({
           templates: (s.templates ?? []).filter((t) => t.id !== id),
         }),
       }));
@@ -1161,6 +1200,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           goal: { name: "", target: 0, saved: 0 },
           budgets: {},
           updatedAt: now,
+          settingsUpdatedAt: now,
         };
       });
     };

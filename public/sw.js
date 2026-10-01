@@ -8,8 +8,31 @@ const CACHE = "finance-shell-v6";
 // берём из сети и никогда не кешируем.
 const BYPASS = new Set(["/version.json", "/lock", "/logout", "/backup"]);
 
+// Сразу кладём в новый кеш оболочку и её статику: activate удаляет прежний
+// кеш, и без этого первый запуск без сети после обновления не открылся бы.
 self.addEventListener("install", (event) => {
   self.skipWaiting();
+  event.waitUntil(
+    (async () => {
+      try {
+        const res = await fetch("/", { cache: "no-store" });
+        if (!res.ok || res.redirected) return;
+        const html = await res.clone().text();
+        const cache = await caches.open(CACHE);
+        await cache.put("/", res);
+        const assets = [...new Set(html.match(/\/_next\/static\/[^"'\s)]+/g) || [])];
+        await Promise.all(
+          assets.map((a) =>
+            fetch(a)
+              .then((r) => (r.ok ? cache.put(a, r) : undefined))
+              .catch(() => {})
+          )
+        );
+      } catch (e) {
+        // нет сети при установке — кеш наполнится при следующем открытии
+      }
+    })()
+  );
 });
 
 self.addEventListener("activate", (event) => {

@@ -696,10 +696,11 @@ function SubDetail({ rule, onClose }: { rule: RecurringRule; onClose: () => void
                   Число месяца
                 </label>
                 <NumberInput
+                  integer
                   value={rule.dayOfMonth}
                   onCommit={(n) =>
                     updateRecurring(rule.id, {
-                      dayOfMonth: Math.min(31, Math.max(1, n)),
+                      dayOfMonth: Math.min(31, Math.max(1, Math.round(n))),
                     })
                   }
                   className={fieldCls}

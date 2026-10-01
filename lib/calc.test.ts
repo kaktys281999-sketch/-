@@ -39,7 +39,7 @@ import {
   creditCardOverpay,
   restoreRecurringIds,
 } from "./calc";
-import { mergeStates, pull, push, toPayload, fromPayload } from "./sync";
+import { mergeStates, pull, push, toPayload, fromPayload, canonicalJson } from "./sync";
 import { freshDraft, pickToAccount } from "./draft";
 import { ensureAlfaAccounts } from "./accounts";
 import { AppState, Operation, Debt, Credit, RecurringRule, Transfer } from "./types";
@@ -1054,6 +1054,72 @@ eq(
     category: "x", amount: 1, accountId: "sber", dayOfMonth: 1, startMonth: "2026-01", note: "" }] }));
   eq(fromPayload(payload).operations[0].recurringId, "r1", "из хаба тоже приходит исправленным");
 }
+
+// ---- Кредит с копейками: 10 платежей по 2 916,67 — это ровно 10 платежей ----
+{
+  const dates = Array.from({ length: 12 }, (_, i) => `2026-${String(i + 1).padStart(2, "0")}-15`);
+  const c = credit({ payment: 2916.67, count: 12, paymentDates: dates,
+    payments: Array.from({ length: 10 }, (_, i) => ({ id: `k${i}`, date: dates[i], amount: 2916.67, accountId: "yandex" })) });
+  const v = creditView(c);
+  eq([v.paidCount, v.nextPaymentDate, v.nextPaymentAmount], [10, "2026-11-15", 2916.67],
+    "копейки не съедают оплаченный платёж (раньше: 9 из 12 и «просрочено · 0 ₽»)");
+  const cal = paymentCalendar(state({ credits: [c] }), "2026-10", "2026-10-01").filter((i) => i.kind === "credit");
+  eq(cal.map((i) => i.paid), [true], "календарь согласен: октябрьский платёж оплачен");
+}
+
+// ---- Сравнение состояний не зависит от порядка записей ----
+{
+  const a = op({ id: "a1", amount: 1 });
+  const b = op({ id: "b1", amount: 2 });
+  const s1 = state({ operations: [a, b] });
+  const s2 = state({ operations: [b, { ...a }] });
+  eq(canonicalJson(s1) === canonicalJson(s2), true, "одни и те же операции в разном порядке — одно состояние");
+  const s3 = state({ operations: [a, { ...b, amount: 3 }] });
+  eq(canonicalJson(s1) === canonicalJson(s3), false, "разное содержимое различается");
+  const keyOrder = state({ operations: [{ amount: 1, id: "a1", date: a.date, type: a.type, category: a.category, accountId: a.accountId, note: "" } as Operation, b] });
+  eq(canonicalJson(keyOrder) === canonicalJson(s1), true, "порядок ключей в объекте не важен");
+}
+
+// ---- Настройки сливаются по своей метке ----
+{
+  const hub = state({
+    updatedAt: 100,
+    settingsUpdatedAt: 0,
+    goal: { name: "Квартира", target: 40000, saved: 0 },
+    primaryAccountId: "yandex",
+    templates: [{ id: "tpl-coffee", title: "Зацепи кофе", type: "expense_personal", category: "Рестораны и кафе", amount: 250, accountId: "yandex", note: "" }],
+    budgets: { "Продукты / еда / вода": 15000 },
+    accounts: [
+      { id: "yandex", name: "Яндекс", baseBalance: 10000, updatedAt: 50 },
+      { id: "cash", name: "Наличные", baseBalance: 1 },
+    ],
+  });
+  // новое устройство: одна операция (документ свежее), настроек не трогали
+  const fresh = state({
+    updatedAt: 500,
+    accounts: [{ id: "cash", name: "Наличные", baseBalance: 0 }],
+    primaryAccountId: "cash",
+    templates: [],
+    operations: [op({ id: "fresh-op", amount: 10, accountId: "cash" })],
+  });
+  const m = mergeStates(fresh, hub);
+  eq([m.goal.name, m.primaryAccountId, (m.templates ?? []).length, (m.budgets ?? {})["Продукты / еда / вода"]],
+    ["Квартира", "yandex", 1, 15000], "новое устройство не затирает настройки таблицы");
+  eq(m.accounts.find((x) => x.id === "cash")!.baseBalance, 1, "и остаток «Наличных» без метки берётся из таблицы");
+  eq(m.operations.some((o) => o.id === "fresh-op"), true, "а его операция сохраняется");
+  // на устройстве правда поменяли настройки — они побеждают
+  const edited = { ...fresh, settingsUpdatedAt: 400, budgets: { "Продукты / еда / вода": 20000 } };
+  eq((mergeStates(edited, hub).budgets ?? {})["Продукты / еда / вода"], 20000, "свежая правка настроек побеждает");
+  // старая версия приложения прислала документ без метки — свежие настройки не откатываются
+  const oldBuildPush = { ...hub, updatedAt: 900, settingsUpdatedAt: undefined, budgets: {} };
+  eq((mergeStates(edited, oldBuildPush).budgets ?? {})["Продукты / еда / вода"], 20000,
+    "документ старой версии не откатывает настройки");
+  eq(mergeStates(edited, hub).settingsUpdatedAt, 400, "метка настроек — максимум из двух");
+}
+
+// ---- Альфа: «Альфа банк» и «Альфа-Банк» — одно имя ----
+eq(ensureAlfaAccounts([{ id: "m", name: "Альфа банк", baseBalance: 0 }]).map((a) => a.id), ["m", "alfa-business"],
+  "имя с пробелом вместо дефиса не дублируется");
 
 // ---- Ответы хаба: отказ больше не выдаётся за успех ----
 async function hubTests() {

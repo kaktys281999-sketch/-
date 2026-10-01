@@ -7,43 +7,60 @@ import { formatMoney } from "@/lib/format";
 // промежуточные значения и фиксирует число при выходе из поля или по Enter.
 // Раньше оно фиксировало каждое нажатие, а округлённое значение тут же
 // возвращалось в поле: при вводе 1234,56 получалось 12356. Запятая и точка
-// принимаются одинаково.
+// принимаются одинаково. Сохраняем ТОЛЬКО если пользователь правил текст:
+// иначе значение, изменившееся за время фокуса (пришла синхронизация),
+// перезаписалось бы устаревшим.
 export function NumberInput({
   value,
   onCommit,
   className = "",
+  integer = false,
 }: {
   value: number;
   onCommit: (n: number) => void;
   className?: string;
+  // целое число (день месяца, количество платежей): цифровая клавиатура и округление
+  integer?: boolean;
 }) {
   const [text, setText] = useState<string>(() => String(value));
   // пока поле в фокусе, внешнее значение не перетирает набираемый текст
   const focused = useRef(false);
+  const dirty = useRef(false);
 
   useEffect(() => {
-    if (!focused.current) setText(String(value));
+    if (!focused.current || !dirty.current) setText(String(value));
   }, [value]);
 
   function commit() {
-    const t = text.replace(/\s/g, "").replace(",", ".");
-    const n = Number(t);
-    if (t === "" || t === "-" || Number.isNaN(n)) {
+    if (!dirty.current) {
       setText(String(value));
       return;
     }
+    dirty.current = false;
+    const t = text.replace(/\s/g, "").replace(",", ".");
+    const parsed = Number(t);
+    if (t === "" || t === "-" || Number.isNaN(parsed)) {
+      setText(String(value));
+      return;
+    }
+    const n = integer ? Math.round(parsed) : parsed;
     if (n !== value) onCommit(n);
+    else setText(String(value));
   }
 
   return (
     <input
       type="text"
-      inputMode="decimal"
+      inputMode={integer ? "numeric" : "decimal"}
       value={text}
       onFocus={() => {
         focused.current = true;
+        dirty.current = false;
       }}
-      onChange={(e) => setText(e.target.value.replace(/[^\d.,\-\s]/g, ""))}
+      onChange={(e) => {
+        dirty.current = true;
+        setText(e.target.value.replace(/[^\d.,\-\s]/g, ""));
+      }}
       onBlur={() => {
         focused.current = false;
         commit();

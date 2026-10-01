@@ -325,6 +325,7 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
                   />
                   <span className="text-[13px] text-label-2">оплата</span>
                   <NumberInput
+                    integer
                     value={a.creditPaymentDay ?? 25}
                     onCommit={(n) =>
                       updateAccount(a.id, {
@@ -725,11 +726,19 @@ function AccountNameInput({
 }) {
   const [text, setText] = useState(name);
   const focused = useRef(false);
+  // Переименовываем, только если в поле правда печатали: иначе выход из поля
+  // вернул бы старое имя поверх переименования с другого устройства.
+  const dirty = useRef(false);
   useEffect(() => {
-    if (!focused.current) setText(name);
+    if (!focused.current || !dirty.current) setText(name);
   }, [name]);
 
   function commit() {
+    if (!dirty.current) {
+      setText(name);
+      return;
+    }
+    dirty.current = false;
     const trimmed = text.trim();
     const duplicate = otherNames.some(
       (n) => n.trim().toLowerCase() === trimmed.toLowerCase()
@@ -749,8 +758,12 @@ function AccountNameInput({
       value={text}
       onFocus={() => {
         focused.current = true;
+        dirty.current = false;
       }}
-      onChange={(e) => setText(e.target.value)}
+      onChange={(e) => {
+        dirty.current = true;
+        setText(e.target.value);
+      }}
       onBlur={() => {
         focused.current = false;
         commit();

@@ -21,7 +21,8 @@ export function accountColor(id: string): string {
 // их не задвоит. updatedAt нет намеренно: если на другом устройстве счёт уже
 // удалили, надгробие при слиянии окажется новее и победит.
 // Удалённый счёт не возвращаем, уже заведённый вручную под тем же именем не
-// дублируем.
+// дублируем. Запускается один раз на устройстве и только после первой удачной
+// синхронизации (см. store.tsx), чтобы видеть удаления и имена из таблицы.
 const ALFA_ACCOUNTS: Account[] = [
   { id: "alfa", name: "Альфа-Банк", baseBalance: 0 },
   { id: "alfa-business", name: "Альфа расчётный счёт", baseBalance: 0 },
@@ -31,7 +32,9 @@ export function ensureAlfaAccounts(
   accounts: Account[],
   deletedAccountIds: Record<string, number> = {}
 ): Account[] {
-  const norm = (n: string) => n.trim().toLowerCase().replace(/ё/g, "е");
+  // «Альфа-Банк», «альфа банк», «Альфа  Банк» — одно и то же имя
+  const norm = (n: string) =>
+    n.trim().toLowerCase().replace(/ё/g, "е").replace(/[-\s]+/g, " ");
   const missing = ALFA_ACCOUNTS.filter(
     (acc) =>
       !deletedAccountIds[acc.id] &&

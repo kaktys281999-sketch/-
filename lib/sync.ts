@@ -29,6 +29,7 @@ export interface SyncPayload {
   recurring?: AppState["recurring"];
   debts?: AppState["debts"];
   deletedAccountIds?: AppState["deletedAccountIds"];
+  settingsUpdatedAt?: AppState["settingsUpdatedAt"];
 }
 
 // Преобразовать легаси-кредит (один) в новую сущность
@@ -76,6 +77,7 @@ export function toPayload(s: AppState): SyncPayload {
     recurring: s.recurring ?? [],
     debts: s.debts ?? [],
     deletedAccountIds: s.deletedAccountIds ?? {},
+    settingsUpdatedAt: s.settingsUpdatedAt ?? 0,
   };
 }
 
@@ -96,7 +98,39 @@ export function fromPayload(p: SyncPayload): AppState {
     debts: p.debts ?? [],
     deletedAccountIds: p.deletedAccountIds ?? {},
     updatedAt: p.updatedAt ?? 0,
+    settingsUpdatedAt: p.settingsUpdatedAt ?? 0,
   };
+}
+
+// Канонический вид состояния для сравнения «одно и то же или нет»: ключи
+// объектов и записи (по id) отсортированы. Слияние оставляет свои записи
+// первыми и дописывает чужие в конец, поэтому у двух устройств одинаковые
+// данные лежат в разном порядке. При сравнении «как есть» каждое
+// пробуждение приложения заново отправляло весь документ, и два устройства
+// перезаписывали хаб друг за другом бесконечно.
+export function canonicalJson(s: AppState): string {
+  const byId = <T extends { id: string }>(xs: T[] | undefined) =>
+    [...(xs ?? [])].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const p = toPayload(s);
+  const sorted = {
+    ...p,
+    accounts: byId(p.accounts),
+    operations: byId(p.operations),
+    transfers: byId(p.transfers),
+    credits: byId(p.credits),
+    recurring: byId(p.recurring),
+    debts: byId(p.debts),
+    templates: byId(p.templates),
+  };
+  return JSON.stringify(sorted, (_key, value) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(
+          Object.keys(value)
+            .sort()
+            .map((k) => [k, (value as Record<string, unknown>)[k]])
+        )
+      : value
+  );
 }
 
 // Слияние двух состояний без потери данных.
@@ -161,6 +195,15 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
   const remoteNewer = (remote.updatedAt ?? 0) > (local.updatedAt ?? 0);
   const base = remoteNewer ? remote : local;
   const other = remoteNewer ? local : remote;
+  // Настройки (цель, бюджеты, шаблоны, основной счёт) берём оттуда, где их
+  // правили позже, по своей метке. При равенстве — из хаба (remote): новое
+  // устройство или вкладка без правок настроек не должны затирать ими таблицу.
+  // Старые версии приложения метку не отправляют, их документ считается
+  // правленным «никогда», и откатить свежие настройки они больше не могут.
+  const settingsBase =
+    (local.settingsUpdatedAt ?? 0) > (remote.settingsUpdatedAt ?? 0)
+      ? local
+      : remote;
 
   const deletedAccountIds = {
     ...(local.deletedAccountIds ?? {}),
@@ -178,6 +221,9 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
   // account.updatedAt позволяет tombstone удаления не воскресать при sync.
   const baseByAccountId = new Map(base.accounts.map((a) => [a.id, a]));
   const otherByAccountId = new Map((other.accounts ?? []).map((a) => [a.id, a]));
+  const settingsByAccountId = new Map(
+    (settingsBase.accounts ?? []).map((a) => [a.id, a])
+  );
   const orderedAccountIds = [
     ...base.accounts.map((a) => a.id),
     ...(other.accounts ?? [])
@@ -190,13 +236,15 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
     const baseAcc = baseByAccountId.get(id);
     const otherAcc = otherByAccountId.get(id);
     if (!baseAcc && !otherAcc) continue;
+    // Счёт без метки ни на одной стороне ни разу не правили (например,
+    // «Наличные» из миграции): берём копию оттуда же, откуда настройки.
     const acc =
       baseAcc && otherAcc
         ? baseAcc.updatedAt !== undefined || otherAcc.updatedAt !== undefined
           ? (baseAcc.updatedAt ?? 0) >= (otherAcc.updatedAt ?? 0)
             ? baseAcc
             : otherAcc
-          : baseAcc
+          : settingsByAccountId.get(id) ?? baseAcc
         : baseAcc ?? otherAcc!;
     const deletedAt = keptDeletedAccountIds[id] ?? 0;
     const accountUpdatedAt = acc.updatedAt ?? 0;
@@ -204,19 +252,23 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
     if (deletedAt && accountUpdatedAt > deletedAt) delete keptDeletedAccountIds[id];
     accounts.push(acc);
   }
-  const primaryAccountId = accounts.some((a) => a.id === base.primaryAccountId)
-    ? base.primaryAccountId
+  const primaryAccountId = accounts.some((a) => a.id === settingsBase.primaryAccountId)
+    ? settingsBase.primaryAccountId
     : accounts[0]?.id;
 
   return {
     accounts,
-    goal: base.goal,
+    goal: settingsBase.goal,
     primaryAccountId,
-    budgets: base.budgets ?? {},
-    budgetRollover: base.budgetRollover ?? false,
-    templates: base.templates ?? [],
-    seededTransportTpl: base.seededTransportTpl ?? false,
-    busDefaultApplied: base.busDefaultApplied ?? false,
+    budgets: settingsBase.budgets ?? {},
+    budgetRollover: settingsBase.budgetRollover ?? false,
+    templates: settingsBase.templates ?? [],
+    seededTransportTpl: settingsBase.seededTransportTpl ?? false,
+    busDefaultApplied: settingsBase.busDefaultApplied ?? false,
+    settingsUpdatedAt: Math.max(
+      local.settingsUpdatedAt ?? 0,
+      remote.settingsUpdatedAt ?? 0
+    ),
     recurring,
     operations,
     transfers,
@@ -266,10 +318,28 @@ export function hubErrorMessage(error: unknown): string {
   return e ? `Хаб ответил ошибкой: ${e}` : "Хаб отклонил запрос";
 }
 
+// Запрос к хабу с ограничением по времени. Раунды синхронизации идут по
+// одному, и один «повисший» запрос (iOS усыпил приложение, кривой Wi-Fi)
+// иначе держал бы все следующие. 60 с — с запасом на 20 с ожидания
+// блокировки в хабе и запись.
+const HUB_TIMEOUT_MS = 60000;
+async function hubFetch(input: string, init: RequestInit): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), HUB_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (ctrl.signal.aborted) throw new Error("Хаб не ответил за минуту");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Загрузить состояние из таблицы (GET). Возвращает null, если таблица пустая.
 export async function pull(url: string): Promise<SyncPayload | null> {
   const sep = url.includes("?") ? "&" : "?";
-  const res = await fetch(`${url}${sep}action=load&t=${Date.now()}`, {
+  const res = await hubFetch(`${url}${sep}action=load&t=${Date.now()}`, {
     method: "GET",
     redirect: "follow",
   });
@@ -290,7 +360,7 @@ export async function pull(url: string): Promise<SyncPayload | null> {
 
 // Сохранить состояние в таблицу (POST text/plain — чтобы не было CORS-preflight)
 export async function push(url: string, payload: SyncPayload): Promise<void> {
-  const res = await fetch(url, {
+  const res = await hubFetch(url, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify(payload),
