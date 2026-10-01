@@ -224,10 +224,13 @@ export function mergeStates(local: AppState, remote: AppState): AppState {
   const settingsByAccountId = new Map(
     (settingsBase.accounts ?? []).map((a) => [a.id, a])
   );
+  // Порядок счетов (порядок чипов в формах) — тоже настройка: берём его
+  // оттуда же, откуда остальные настройки, новые счета дописываем в конец.
+  const settingsOther = settingsBase === local ? remote : local;
   const orderedAccountIds = [
-    ...base.accounts.map((a) => a.id),
-    ...(other.accounts ?? [])
-      .filter((a) => !baseByAccountId.has(a.id))
+    ...(settingsBase.accounts ?? []).map((a) => a.id),
+    ...(settingsOther.accounts ?? [])
+      .filter((a) => !settingsByAccountId.has(a.id))
       .map((a) => a.id),
   ];
   const accounts: Account[] = [];
