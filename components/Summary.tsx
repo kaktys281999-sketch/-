@@ -21,6 +21,7 @@ import {
   notesBreakdown,
   creditCardDebt,
   creditCardCurrentCycle,
+  creditCardCycleNeedsPayment,
   creditCardAvailable,
   creditCardOverpay,
 } from "@/lib/store";
@@ -182,9 +183,8 @@ export function Summary({
   for (const a of state.accounts) {
     if (a.kind !== "credit_card") continue;
     const cycle = creditCardCurrentCycle(state, a, today);
-    if (!cycle || cycle.paid) continue;
+    if (!cycle || !creditCardCycleNeedsPayment(state, cycle, a.id, today)) continue;
     const amount = creditCardDebt(state, a.id);
-    if (amount <= 0) continue;
     const date = cycle.due;
     const days = daysUntil(date);
     if (days > 7) continue;
@@ -417,8 +417,10 @@ export function Summary({
             ? ""
             : cycle.paid
               ? `платёж к ${formatDateShort(cycle.due)} внесён: ${formatMoney(cycle.paidAmount)} ✓`
-              : debt > 0
-                ? `оплатить до ${formatDateShort(cycle.due)}`
+              : creditCardCycleNeedsPayment(state, cycle, a.id, today)
+                ? cycle.due < today
+                  ? `просрочен платёж к ${formatDateShort(cycle.due)}`
+                  : `оплатить до ${formatDateShort(cycle.due)}`
                 : "";
           const available = creditCardAvailable(state, a.id);
           return (

@@ -188,10 +188,13 @@ export function nextCreditCardDueDate(
 // если платить забыли. Теперь срок считается оплаченным, если в его окне есть
 // хоть один перевод на карту.
 //
-// Окно срока D: от (предыдущий срок + 10 дней) не включая до (D + 10 дней)
-// включительно. Окна стыкуются без зазоров, поэтому любой платёж относится
-// ровно к одному сроку — и внесённый заранее, и на несколько дней позже.
-export const CARD_PAYMENT_GRACE_DAYS = 10;
+// Окно срока D: с (D − 7 дней) по (следующий срок − 8 дней) включительно —
+// то есть с момента, когда открывается напоминание об этом сроке, и до
+// момента, когда открывается напоминание о следующем. Окна стыкуются без
+// зазоров: неоплаченный срок висит просроченным без пауз, пока его не сменит
+// следующий, а платёж, внесённый (или записанный) поздно, закрывает свой
+// месяц, а не следующий.
+export const CARD_REMINDER_DAYS = 7;
 
 function addDaysISO(iso: string, days: number): string {
   const [y, m, d] = iso.split("-").map(Number);
@@ -219,12 +222,50 @@ export function creditCardPaidBetween(
   return round2(sum);
 }
 
+// Баланс счёта на конец дня date: текущий минус всё, что датировано позже.
+export function accountBalanceAt(
+  state: AppState,
+  accountId: string,
+  date: string
+): number {
+  let later = 0;
+  for (const o of state.operations) {
+    if (!o.deleted && o.date > date) later += operationAccountDelta(o, accountId);
+  }
+  for (const t of state.transfers ?? []) {
+    if (!t.deleted && t.date > date) later += transferAccountDelta(t, accountId);
+  }
+  for (const d of state.debts ?? []) {
+    if (d.deleted) continue;
+    const sign = d.direction === "owed_to_me" ? -1 : 1;
+    if (d.accountId === accountId && d.date > date) later += sign * d.amount;
+    for (const p of d.payments) {
+      if (p.accountId === accountId && p.date > date) later += -sign * p.amount;
+    }
+  }
+  for (const c of state.credits ?? []) {
+    if (c.deleted) continue;
+    if (
+      c.receivedAffectsBalance &&
+      (c.receivedAccountId || c.accountId) === accountId &&
+      c.receivedDate > date
+    ) {
+      later += c.received;
+    }
+    for (const p of c.payments) {
+      if (p.accountId === accountId && p.date > date) later -= p.amount;
+    }
+  }
+  return round2(currentBalance(state, accountId) - later);
+}
+
 export interface CardCycle {
   due: string; // срок платежа
   from: string; // окно платежей: после этой даты…
   to: string; // …и по эту включительно
   paidAmount: number; // внесено в окне
   paid: boolean;
+  owedAtDue: number; // долг по карте на конец дня срока
 }
 
 // Цикл карты со сроком в месяце month (YYYY-MM).
@@ -234,12 +275,19 @@ export function creditCardCycleForMonth(
   month: string
 ): CardCycle | null {
   const due = creditCardDueDate(account, month);
-  const prevDue = creditCardDueDate(account, shiftMonth(month, -1));
-  if (!due || !prevDue) return null;
-  const from = addDaysISO(prevDue, CARD_PAYMENT_GRACE_DAYS);
-  const to = addDaysISO(due, CARD_PAYMENT_GRACE_DAYS);
+  const nextDue = creditCardDueDate(account, shiftMonth(month, 1));
+  if (!due || !nextDue) return null;
+  const from = addDaysISO(due, -(CARD_REMINDER_DAYS + 1));
+  const to = addDaysISO(nextDue, -(CARD_REMINDER_DAYS + 1));
   const paidAmount = creditCardPaidBetween(state, account.id, from, to);
-  return { due, from, to, paidAmount, paid: paidAmount > 0 };
+  return {
+    due,
+    from,
+    to,
+    paidAmount,
+    paid: paidAmount > 0,
+    owedAtDue: Math.max(0, -accountBalanceAt(state, account.id, due)),
+  };
 }
 
 // Текущий цикл карты: тот, в окно которого попадает today.
@@ -254,6 +302,21 @@ export function creditCardCurrentCycle(
     if (c && today > c.from && today <= c.to) return c;
   }
   return null;
+}
+
+// Нужно ли платить по циклу. До срока — если сейчас есть долг. После срока —
+// если долг был на дату срока и ещё не погашен: иначе «просрочено» появлялось
+// бы от покупок, сделанных уже после срока.
+export function creditCardCycleNeedsPayment(
+  state: AppState,
+  cycle: CardCycle,
+  accountId: string,
+  today: string
+): boolean {
+  if (cycle.paid) return false;
+  const debt = creditCardDebt(state, accountId);
+  if (debt <= 0) return false;
+  return cycle.due >= today || cycle.owedAtDue > 0;
 }
 
 export function creditCardDebt(state: AppState, accountId: string): number {
@@ -407,10 +470,10 @@ export function paymentCalendar(
       });
       continue;
     }
-    const debt = creditCardDebt(state, a.id);
-    if (debt <= 0) continue;
-    // неоплаченный срок висит, пока не закрылось окно его платежа (срок + 10 дней)
+    // неоплаченный срок висит, пока его окно не сменилось следующим сроком
     if (cycle.to < today) continue;
+    if (!creditCardCycleNeedsPayment(state, cycle, a.id, today)) continue;
+    const debt = creditCardDebt(state, a.id);
     items.push({
       key: `card-${a.id}`,
       date: cycle.due,
