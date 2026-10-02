@@ -15,12 +15,16 @@ export function NumberInput({
   onCommit,
   className = "",
   integer = false,
+  commitUnchanged = false,
 }: {
   value: number;
   onCommit: (n: number) => void;
   className?: string;
   // целое число (день месяца, количество платежей): цифровая клавиатура и округление
   integer?: boolean;
+  // сохранять и то же самое число, если его ввели заново (сверка остатка:
+  // «в банке ровно столько же» — тоже сверка)
+  commitUnchanged?: boolean;
 }) {
   const [text, setText] = useState<string>(() => String(value));
   // пока поле в фокусе, внешнее значение не перетирает набираемый текст
@@ -44,7 +48,7 @@ export function NumberInput({
       return;
     }
     const n = integer ? Math.round(parsed) : parsed;
-    if (n !== value) onCommit(n);
+    if (n !== value || commitUnchanged) onCommit(n);
     else setText(String(value));
   }
 

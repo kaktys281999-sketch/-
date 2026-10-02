@@ -1,6 +1,15 @@
 // Чистые денежные вычисления (без React) — чтобы их можно было покрыть тестами.
 // store.tsx реэкспортирует всё отсюда, поэтому существующие импорты не меняются.
-import { AppState, Operation, Debt, Credit, RecurringRule, Transfer, Account } from "./types";
+import {
+  AppState,
+  Operation,
+  Debt,
+  Credit,
+  RecurringRule,
+  Transfer,
+  Account,
+  Reconciliation,
+} from "./types";
 import { getCategorySign } from "./categories";
 import { monthKeyFromISO, shiftMonth } from "./format";
 
@@ -231,7 +240,7 @@ export function accountBalanceAt(
   const acc = state.accounts.find((a) => a.id === accountId);
   if (!acc) return 0;
   const deltas = accountDeltas(state, accountId);
-  const r = acc.reconciled;
+  const r = activeReconciliation(acc);
   if (!r) {
     let later = 0;
     for (const d of deltas) if (d.date > date) later += d.delta;
@@ -747,53 +756,70 @@ export interface DatedDelta {
   key: string;
   date: string;
   delta: number;
+  // когда запись создана/изменена (мс), если известно
+  at?: number;
 }
 
 export function accountDeltas(state: AppState, accountId: string): DatedDelta[] {
   const out: DatedDelta[] = [];
-  const push = (key: string, date: string, delta: number) => {
-    if (delta) out.push({ key, date, delta });
+  const push = (key: string, date: string, delta: number, at?: number) => {
+    if (delta) out.push({ key, date, delta, at });
   };
   for (const o of state.operations) {
-    if (!o.deleted) push(`op:${o.id}`, o.date, operationAccountDelta(o, accountId));
+    if (!o.deleted) push(`op:${o.id}`, o.date, operationAccountDelta(o, accountId), o.updatedAt);
   }
   for (const t of state.transfers ?? []) {
-    if (!t.deleted) push(`tr:${t.id}`, t.date, transferAccountDelta(t, accountId));
+    if (!t.deleted) push(`tr:${t.id}`, t.date, transferAccountDelta(t, accountId), t.updatedAt);
   }
+  // у платежей по долгам и кредитам своей метки нет — берём метку родителя
   for (const d of state.debts ?? []) {
     if (d.deleted) continue;
     const sign = d.direction === "owed_to_me" ? -1 : 1;
-    if (d.accountId === accountId) push(`debt:${d.id}`, d.date, sign * d.amount);
+    if (d.accountId === accountId) push(`debt:${d.id}`, d.date, sign * d.amount, d.updatedAt);
     for (const p of d.payments) {
-      if (p.accountId === accountId) push(`debtpay:${d.id}:${p.id}`, p.date, -sign * p.amount);
+      if (p.accountId === accountId) {
+        push(`debtpay:${d.id}:${p.id}`, p.date, -sign * p.amount, d.updatedAt);
+      }
     }
   }
   for (const c of state.credits ?? []) {
     if (c.deleted) continue;
     if (c.receivedAffectsBalance && (c.receivedAccountId || c.accountId) === accountId) {
-      push(`credit:${c.id}`, c.receivedDate, c.received);
+      push(`credit:${c.id}`, c.receivedDate, c.received, c.updatedAt);
     }
     for (const p of c.payments) {
-      if (p.accountId === accountId) push(`creditpay:${c.id}:${p.id}`, p.date, -p.amount);
+      if (p.accountId === accountId) {
+        push(`creditpay:${c.id}:${p.id}`, p.date, -p.amount, c.updatedAt);
+      }
     }
   }
   return out;
 }
 
-// Учтена ли запись в остатке сверки (датирована раньше или в тот же день, но
-// существовала в момент сверки).
-function coveredByReconciliation(
-  d: DatedDelta,
-  r: { date: string; dayKeys: string[] }
-): boolean {
-  return d.date < r.date || (d.date === r.date && r.dayKeys.includes(d.key));
+// Действующая сверка счёта. Если старая версия приложения с тех пор поменяла
+// baseBalance (ввела остаток или влила в счёт другой), сверка устарела.
+export function activeReconciliation(acc: Account): Reconciliation | undefined {
+  const r = acc.reconciled;
+  if (!r) return undefined;
+  if (r.base !== undefined && Math.abs(acc.baseBalance - r.base) > 0.005) return undefined;
+  return r;
+}
+
+// Учтена ли запись в остатке сверки: датирована раньше, или в тот же день и
+// существовала в момент сверки — была в списке на сверяющем устройстве или
+// создана раньше сверки, но доехала до устройства позже (с другого телефона,
+// сгенерированная регулярная операция с меткой 0).
+function coveredByReconciliation(d: DatedDelta, r: Reconciliation): boolean {
+  if (d.date < r.date) return true;
+  if (d.date > r.date) return false;
+  return r.dayKeys.includes(d.key) || (d.at !== undefined && d.at <= r.at);
 }
 
 export function currentBalance(state: AppState, accountId: string): number {
   const acc = state.accounts.find((a) => a.id === accountId);
   if (!acc) return 0;
   const deltas = accountDeltas(state, accountId);
-  const r = acc.reconciled;
+  const r = activeReconciliation(acc);
   // Округляем до копеек: иначе 3 × 149,90 и оплата 449,70 оставляли «долг»
   // 5,7e-14, и напоминание «оплатить кредитку · долг 0 ₽» висело вечно.
   if (r) {
@@ -816,16 +842,19 @@ export function reconcileAccount(
   now: number
 ): Pick<Account, "baseBalance" | "reconciled"> {
   const deltas = accountDeltas(state, accountId);
-  const all = deltas.reduce((s, d) => s + d.delta, 0);
+  // Остаток в банке — на сегодня: записи с будущей датой в нём ещё не учтены.
+  const upToToday = deltas.filter((d) => d.date <= today).reduce((s, d) => s + d.delta, 0);
   const balance = round2(value);
+  const base = round2(balance - upToToday);
   return {
-    baseBalance: round2(balance - all),
+    baseBalance: base,
     reconciled: {
       date: today,
       balance,
       at: now,
       dayKeys: deltas.filter((d) => d.date === today).map((d) => d.key),
-      adjustment: round2(balance - currentBalance(state, accountId)),
+      adjustment: round2(balance - accountBalanceAt(state, accountId, today)),
+      base,
     },
   };
 }
@@ -834,6 +863,11 @@ export function reconcileAccount(
 // двух счетов: записи переезжают на другой счёт со своими датами).
 export function accountWithoutReconciliation(state: AppState, account: Account): Account {
   if (!account.reconciled) return account;
+  if (!activeReconciliation(account)) {
+    // устаревшая сверка ни на что не влияет — просто убираем её
+    const { reconciled: _stale, ...plain } = account;
+    return plain;
+  }
   const all = accountDeltas(state, account.id).reduce((s, d) => s + d.delta, 0);
   const { reconciled: _drop, ...rest } = account;
   return { ...rest, baseBalance: round2(currentBalance(state, account.id) - all) };

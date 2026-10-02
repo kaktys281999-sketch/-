@@ -1314,6 +1314,39 @@ eq(ensureAlfaAccounts([{ id: "m", name: "Альфа банк", baseBalance: 0 }]
   eq(creditCardDebt(cardRec, "c"), 800, "долг по карте после сверки 800");
 }
 
+// ---- Сверка: старые версии, записи «из прошлого» того же дня, будущие даты ----
+{
+  const today = "2026-10-02";
+  const at = 5000;
+  const recOf = (st: AppState, id: string, v: number) => ({
+    ...st,
+    accounts: st.accounts.map((a) => (a.id === id ? { ...a, ...reconcileAccount(st, id, v, today, at) } : a)),
+  });
+  // F3: старая версия ввела остаток (поменяла только baseBalance) — сверка устарела
+  const rec = recOf(state({ operations: [op({ id: "x", accountId: "sber", amount: 100, date: "2026-09-01", updatedAt: 1 })] }), "sber", 3500);
+  const oldBuildEdit = { ...rec, accounts: rec.accounts.map((a) => (a.id === "sber" ? { ...a, baseBalance: 9100 } : a)) };
+  eq(currentBalance(oldBuildEdit, "sber"), 9000, "остаток, введённый на старой версии, не игнорируется");
+  // F4: сгенерированная аренда (метка 0) и трата с телефона до сверки, доехавшая позже
+  const base4 = state({});
+  const rec4 = recOf(base4, "sber", 6000);
+  const arrivedLater = {
+    ...rec4,
+    operations: [
+      op({ id: "rec-rent-2026-10", recurringId: "rent", accountId: "sber", amount: 2000, date: today, updatedAt: 0 }),
+      op({ id: "phone", accountId: "sber", amount: 300, date: today, updatedAt: at - 1000 }),
+      op({ id: "afterRec", accountId: "sber", amount: 50, date: today, updatedAt: at + 1000 }),
+    ],
+  };
+  eq(currentBalance(arrivedLater, "sber"), 5950, "записи дня, созданные до сверки, учтены; после — считаются");
+  // F5: запись с будущей датой
+  const future = state({ operations: [op({ id: "rent", accountId: "sber", amount: 2000, date: "2026-10-10", updatedAt: 1 })] });
+  eq([currentBalance(future, "sber"), accountBalanceAt(future, "sber", today)], [3000, 5000], "до сверки: сегодня 5000, с будущей арендой 3000");
+  const recF = recOf(future, "sber", 5000);
+  const accF = recF.accounts.find((a) => a.id === "sber")!;
+  eq([accF.reconciled!.adjustment, currentBalance(recF, "sber"), accF.baseBalance + 0 - 2000], [0, 3000, 3000],
+    "банк и приложение на сегодня совпали — поправки нет; старые версии покажут то же");
+}
+
 // ---- Ответы хаба: отказ больше не выдаётся за успех ----
 async function hubTests() {
   const realFetch = globalThis.fetch;

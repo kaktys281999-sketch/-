@@ -6,7 +6,9 @@ import {
   currentBalance,
   creditCardDebt,
   creditCardAvailable,
+  activeReconciliation,
 } from "@/lib/store";
+import { Account } from "@/lib/types";
 import { Theme, getTheme, setTheme, DEFAULT_THEME } from "@/lib/theme";
 import {
   operationsToCSV,
@@ -268,6 +270,7 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
                   {a.kind === "credit_card" ? "Долг" : "Остаток"}
                 </div>
                 <NumberInput
+                  commitUnchanged
                   value={
                     a.kind === "credit_card"
                       ? creditCardDebt(state, a.id)
@@ -283,16 +286,7 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
                 />
               </div>
             </div>
-            {a.reconciled && (
-              <div className="mt-1 text-right text-[12px] text-label-3">
-                сверено {formatDateShort(a.reconciled.date)}
-                {Math.round(a.reconciled.adjustment ?? 0) !== 0
-                  ? ` · поправка ${a.reconciled.adjustment > 0 ? "+" : "−"}${formatMoney(
-                      Math.abs(a.reconciled.adjustment)
-                    )}`
-                  : ""}
-              </div>
-            )}
+            <ReconciledNote account={a} />
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -787,5 +781,28 @@ function AccountNameInput({
       data-account-id={id}
       className="min-w-0 flex-1 bg-transparent text-[15px] outline-none focus:ring-0"
     />
+  );
+}
+
+// «сверено 2 окт. · поправка …» под остатком счёта. У кредитки поле показывает
+// долг, поэтому знак поправки берём в долге: долг вырос — «+».
+function ReconciledNote({ account }: { account: Account }) {
+  const r = activeReconciliation(account);
+  if (!r) {
+    return (
+      <div className="mt-1 text-right text-[12px] text-label-3">
+        не сверено — введите остаток из банка
+      </div>
+    );
+  }
+  const adj =
+    (account.kind === "credit_card" ? -1 : 1) * (r.adjustment ?? 0);
+  return (
+    <div className="mt-1 text-right text-[12px] text-label-3">
+      сверено {formatDateShort(r.date)}
+      {Math.round(adj) !== 0
+        ? ` · поправка ${adj > 0 ? "+" : "−"}${formatMoney(Math.abs(adj))}`
+        : ""}
+    </div>
   );
 }

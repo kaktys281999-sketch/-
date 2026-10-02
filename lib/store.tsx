@@ -710,24 +710,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const deleteAccount = (id: string) => {
       const now = Date.now();
       setState((prev) => {
+        if (!prev.accounts.some((a) => a.id === id) || prev.accounts.length <= 1) {
+          return prev;
+        }
+        const replacementId =
+          (prev.primaryAccountId &&
+          prev.primaryAccountId !== id &&
+          prev.accounts.some((a) => a.id === prev.primaryAccountId)
+            ? prev.primaryAccountId
+            : undefined) ??
+          prev.accounts.find((a) => a.id !== id && a.kind !== "credit_card")?.id ??
+          prev.accounts.find((a) => a.id !== id)?.id;
+        if (!replacementId) return prev;
         // Записи удаляемого счёта переезжают на другой со своими датами, поэтому
-        // сверку у обоих снимаем, сохранив текущие остатки (иначе переехавшие
-        // старые записи оказались бы «учтены» чужой сверкой).
+        // сверку у ЭТИХ ДВУХ счетов снимаем, сохранив их текущие остатки (иначе
+        // переехавшие старые записи оказались бы «учтены» чужой сверкой).
+        // Остальные счета сверку сохраняют.
         const s = {
           ...prev,
-          accounts: prev.accounts.map((a) => accountWithoutReconciliation(prev, a)),
+          accounts: prev.accounts.map((a) =>
+            a.id === id || a.id === replacementId
+              ? accountWithoutReconciliation(prev, a)
+              : a
+          ),
         };
-        const account = s.accounts.find((a) => a.id === id);
-        if (!account || s.accounts.length <= 1) return prev;
-        const replacementId =
-          (s.primaryAccountId &&
-          s.primaryAccountId !== id &&
-          s.accounts.some((a) => a.id === s.primaryAccountId)
-            ? s.primaryAccountId
-            : undefined) ??
-          s.accounts.find((a) => a.id !== id && a.kind !== "credit_card")?.id ??
-          s.accounts.find((a) => a.id !== id)?.id;
-        if (!replacementId) return prev;
+        const account = s.accounts.find((a) => a.id === id)!;
 
         const remap = (accountId: string) =>
           accountId === id ? replacementId : accountId;
