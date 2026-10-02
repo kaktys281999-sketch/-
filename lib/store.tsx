@@ -92,6 +92,10 @@ export interface SyncState {
   status: SyncStatusKind;
   message: string;
   lastSync: number | null;
+  // Сколько раундов подряд не удалось. Google-хаб время от времени «зависает»
+  // на минуту и отвечает 404; одиночный сбой проходит сам при повторе, и
+  // пугать им незачем — плашка на «Сводке» показывается со второго подряд.
+  failures?: number;
 }
 
 interface StoreContextValue {
@@ -327,6 +331,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const lastRoundAt = useRef(0);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const failuresInRow = useRef(0);
   // Первый раунд после запуска закончился (успешно или нет). До него не
   // догенерируем регулярные операции: правило могли удалить на другом устройстве.
   const [firstSyncDone, setFirstSyncDone] = useState(false);
@@ -364,20 +369,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (json !== remoteJson) await push(url, toPayload(merged));
       if (seedAlfa) markAlfaSeeded();
       lastSyncedJson.current = json;
-      setSyncState({ status: "ok", message: "Синхронизировано", lastSync: Date.now() });
+      failuresInRow.current = 0;
+      setSyncState({ status: "ok", message: "Синхронизировано", lastSync: Date.now(), failures: 0 });
     } catch (e) {
+      failuresInRow.current += 1;
       setSyncState({
         status: "error",
         message: e instanceof Error ? e.message : "Ошибка синхронизации",
         lastSync: null,
+        failures: failuresInRow.current,
       });
-      // Повторим сами: раньше неудачная отправка больше не повторялась, пока
-      // не случится следующая правка.
+      // Повторим сами, с нарастающей паузой: 15 с, 30 с, минута… до 5 минут.
+      // Раньше неудачная отправка не повторялась вовсе, а частые повторы при
+      // долгой поломке (неверный токен) зря расходовали бы квоту Google.
       if (syncRef.current.auto && !retryTimer.current) {
+        const delay = Math.min(300000, 15000 * 2 ** (failuresInRow.current - 1));
         retryTimer.current = setTimeout(() => {
           retryTimer.current = null;
           void requestRound();
-        }, 30000);
+        }, delay);
       }
     }
   };

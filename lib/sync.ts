@@ -334,11 +334,20 @@ async function hubFetch(input: string, init: RequestInit): Promise<Response> {
   try {
     return await fetch(input, { ...init, signal: ctrl.signal });
   } catch (e) {
-    if (ctrl.signal.aborted) throw new Error("Хаб не ответил за минуту");
+    if (ctrl.signal.aborted) throw new Error("Google-хаб не ответил за минуту, повторим");
     throw e;
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Apps Script при внутреннем сбое отдаёт страницу Google «не найдено» (404)
+// или 5xx, хотя ссылка верная; обычно повтор через полминуты проходит.
+function hubHttpMessage(status: number): string {
+  if (status === 404 || status >= 500) {
+    return `Google-хаб временно не ответил (HTTP ${status}), повторим`;
+  }
+  return `Хаб ответил HTTP ${status}`;
 }
 
 // Загрузить состояние из таблицы (GET). Возвращает null, если таблица пустая.
@@ -348,7 +357,7 @@ export async function pull(url: string): Promise<SyncPayload | null> {
     method: "GET",
     redirect: "follow",
   });
-  if (!res.ok) throw new Error(`Ошибка загрузки: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(hubHttpMessage(res.status));
   let data: unknown;
   try {
     data = await res.json();
@@ -371,7 +380,7 @@ export async function push(url: string, payload: SyncPayload): Promise<void> {
     body: JSON.stringify(payload),
     redirect: "follow",
   });
-  if (!res.ok) throw new Error(`Ошибка сохранения: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(hubHttpMessage(res.status));
   // Хаб отвечает HTTP 200 и на отказ, поэтому успех — только явный {ok:true}.
   // Раньше исключение бросалось внутри try и тут же глоталось, и отказ хаба
   // (неверный токен, занятая блокировка) показывался как «Сохранено».

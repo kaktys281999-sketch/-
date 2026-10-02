@@ -265,7 +265,7 @@ export function Summary({
           Вставьте ссылку хаба с токеном в «Настройки → Синхронизация».
         </div>
       )}
-      {sync.url.trim() && syncState.status === "error" && (
+      {sync.url.trim() && syncState.status === "error" && (syncState.failures ?? 1) >= 2 && (
         <div className="rounded-2xl bg-amber-50 p-4 text-[14px] leading-relaxed text-amber-800 dark:bg-amber-950/30 dark:text-amber-200 md:col-span-2">
           Не удалось синхронизироваться: {syncState.message}. Изменения сохранены
           на этом устройстве и уйдут в таблицу при следующей удачной попытке.
