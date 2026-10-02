@@ -25,13 +25,10 @@ import {
 } from "./types";
 import { todayISO, generatePaymentDates, monthKey } from "./format";
 import {
-  operationDelta,
-  operationAccountDelta,
-  debtAccountDelta,
-  creditAccountDelta,
-  transferAccountDelta,
   dueRecurringOperations,
   restoreRecurringIds,
+  reconcileAccount,
+  accountWithoutReconciliation,
 } from "./calc";
 // Денежные селекторы живут в ./calc (без React) — реэкспортируем для потребителей
 export * from "./calc";
@@ -609,33 +606,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     // Ручное редактирование баланса: текущий = base + сумма дельт.
     // Подбираем base так, чтобы текущий стал равен введённому значению.
-    const setAccountBalance = (id: string, currentBalance: number) => {
+    // Ввод остатка = сверка с банком на сегодня (см. reconcileAccount): правка
+    // старых записей задним числом остаток после неё не сдвигает.
+    const setAccountBalance = (id: string, value: number) => {
       setState((s) => {
         const now = Date.now();
-        const opDelta = s.operations
-          .filter((o) => !o.deleted)
-          .reduce((sum, o) => sum + operationAccountDelta(o, id), 0);
-        const debtDelta = (s.debts ?? [])
-          .filter((d) => !d.deleted)
-          .reduce((sum, d) => sum + debtAccountDelta(d, id), 0);
-        const creditDelta = (s.credits ?? [])
-          .filter((c) => !c.deleted)
-          .reduce((sum, c) => sum + creditAccountDelta(c, id), 0);
-        const transferDelta = (s.transfers ?? [])
-          .filter((t) => !t.deleted)
-          .reduce((sum, t) => sum + transferAccountDelta(t, id), 0);
-        const deltaSum = opDelta + debtDelta + creditDelta + transferDelta;
+        const fields = reconcileAccount(s, id, value, todayISO(), now);
         return {
           ...s,
           ...touch({
             accounts: s.accounts.map((a) =>
-              a.id === id
-                ? {
-                    ...a,
-                    baseBalance: Math.round((currentBalance - deltaSum) * 100) / 100,
-                    updatedAt: now,
-                  }
-                : a
+              a.id === id ? { ...a, ...fields, updatedAt: now } : a
             ),
           }),
         };
@@ -728,9 +709,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
     const deleteAccount = (id: string) => {
       const now = Date.now();
-      setState((s) => {
+      setState((prev) => {
+        // Записи удаляемого счёта переезжают на другой со своими датами, поэтому
+        // сверку у обоих снимаем, сохранив текущие остатки (иначе переехавшие
+        // старые записи оказались бы «учтены» чужой сверкой).
+        const s = {
+          ...prev,
+          accounts: prev.accounts.map((a) => accountWithoutReconciliation(prev, a)),
+        };
         const account = s.accounts.find((a) => a.id === id);
-        if (!account || s.accounts.length <= 1) return s;
+        if (!account || s.accounts.length <= 1) return prev;
         const replacementId =
           (s.primaryAccountId &&
           s.primaryAccountId !== id &&
@@ -739,7 +727,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             : undefined) ??
           s.accounts.find((a) => a.id !== id && a.kind !== "credit_card")?.id ??
           s.accounts.find((a) => a.id !== id)?.id;
-        if (!replacementId) return s;
+        if (!replacementId) return prev;
 
         const remap = (accountId: string) =>
           accountId === id ? replacementId : accountId;
@@ -1207,7 +1195,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // балансы счетов обнуляем (имена счетов и шаблоны оставляем).
         return {
           ...s,
-          accounts: s.accounts.map((a) => ({ ...a, baseBalance: 0 })),
+          accounts: s.accounts.map((a) => ({ ...a, baseBalance: 0, reconciled: undefined })),
           operations: s.operations.map((o) => ({ ...o, deleted: true, updatedAt: now })),
           transfers: (s.transfers ?? []).map((t) => ({ ...t, deleted: true, updatedAt: now })),
           debts: (s.debts ?? []).map((d) => ({ ...d, deleted: true, updatedAt: now })),

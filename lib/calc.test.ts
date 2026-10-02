@@ -42,6 +42,8 @@ import {
   creditCardCycleForMonth,
   creditCardCycleNeedsPayment,
   accountBalanceAt,
+  reconcileAccount,
+  accountWithoutReconciliation,
 } from "./calc";
 import { mergeStates, pull, push, toPayload, fromPayload, canonicalJson } from "./sync";
 import { freshDraft, pickToAccount } from "./draft";
@@ -1252,6 +1254,64 @@ eq(ensureAlfaAccounts([{ id: "m", name: "Альфа банк", baseBalance: 0 }]
   eq(currentBalance(st, "sber"), 5000 - 1000 + 300 - 200 + 700, "текущий");
   eq(accountBalanceAt(st, "sber", "2026-05-12"), 4000, "на 12 мая — до дохода, долга и перевода");
   eq(accountBalanceAt(st, "sber", "2026-05-31"), currentBalance(st, "sber"), "на конец месяца = текущему");
+}
+
+// ---- Сверка с банком: правка истории задним числом не сдвигает остаток ----
+{
+  const today = "2026-10-02";
+  const withRec = (st: AppState, id: string, value: number, now = 1000): AppState => ({
+    ...st,
+    accounts: st.accounts.map((a) => (a.id === id ? { ...a, ...reconcileAccount(st, id, value, today, now) } : a)),
+  });
+  const base0 = state({
+    operations: [
+      op({ id: "old1", accountId: "sber", amount: 1000, date: "2026-09-20" }),
+      op({ id: "today1", accountId: "sber", amount: 200, date: today }),
+    ],
+  });
+  eq(currentBalance(base0, "sber"), 3800, "до сверки: 5000 − 1000 − 200");
+  const rec = withRec(base0, "sber", 3500);
+  const r = rec.accounts.find((a) => a.id === "sber")!.reconciled!;
+  eq([currentBalance(rec, "sber"), r.adjustment, r.dayKeys], [3500, -300, ["op:today1"]], "сверка: в банке 3 500, поправка −300");
+  eq(rec.accounts.find((a) => a.id === "sber")!.baseBalance + (-1000 - 200), 3500,
+    "baseBalance тоже пересчитан — старые версии покажут то же");
+
+  // дописали забытую трату задним числом — остаток не меняется
+  const backfill = { ...rec, operations: [...rec.operations, op({ id: "late", accountId: "sber", amount: 700, date: "2026-09-25" })] };
+  eq(currentBalance(backfill, "sber"), 3500, "трата задним числом уже учтена банком");
+  // удалили старую запись — тоже
+  const deletedOld = { ...rec, operations: rec.operations.map((o) => (o.id === "old1" ? { ...o, deleted: true } : o)) };
+  eq(currentBalance(deletedOld, "sber"), 3500, "удаление старой записи остаток не сдвигает");
+  // запись сегодняшнего дня, бывшая на момент сверки, правится — учтена
+  const editedToday = { ...rec, operations: rec.operations.map((o) => (o.id === "today1" ? { ...o, amount: 999 } : o)) };
+  eq(currentBalance(editedToday, "sber"), 3500, "сегодняшняя запись до сверки в ней учтена");
+  // новая трата сегодня после сверки — считается
+  const after = { ...rec, operations: [...rec.operations, op({ id: "coffee", accountId: "sber", amount: 250, date: today })] };
+  eq(currentBalance(after, "sber"), 3250, "кофе после сверки уменьшает остаток");
+  // и завтрашняя
+  const tomorrow = { ...rec, operations: [...rec.operations, op({ type: "income", category: "Прочий доход", accountId: "sber", amount: 1000, date: "2026-10-03" })] };
+  eq(currentBalance(tomorrow, "sber"), 4500, "доход после даты сверки считается");
+  // перевод на сверенный счёт после сверки — считается
+  const tr = { ...rec, operations: [...rec.operations, op({ type: "transfer", category: "", accountId: "yandex", toAccountId: "sber", amount: 300, date: "2026-10-03" })] };
+  eq([currentBalance(tr, "sber"), currentBalance(tr, "yandex")], [3800, 9700], "перевод после сверки двигает оба счёта");
+  // остаток на дату
+  eq(accountBalanceAt(after, "sber", "2026-09-30"), 3500 + 200, "на 30 сен: до сегодняшней траты 200");
+  eq(accountBalanceAt(after, "sber", today), 3250, "на конец сегодняшнего дня");
+  // слияние двух устройств: сверка едет вместе со счётом
+  const remote = { ...rec, updatedAt: 5, accounts: rec.accounts.map((a) => (a.id === "sber" ? { ...a, updatedAt: 2000 } : a)) };
+  const local = { ...base0, updatedAt: 9 };
+  eq(currentBalance(mergeStates(local, remote), "sber"), 3500, "сверка с другого устройства применяется");
+  // снятие сверки сохраняет текущий остаток
+  const plain = accountWithoutReconciliation(after, after.accounts.find((a) => a.id === "sber")!);
+  const plainState = { ...after, accounts: after.accounts.map((a) => (a.id === "sber" ? plain : a)) };
+  eq([plain.reconciled ?? null, currentBalance(plainState, "sber")], [null, 3250], "без сверки остаток тот же");
+  // кредитка: долг вводится как минус, сверка работает так же
+  const card = state({
+    accounts: [{ id: "c", name: "Карта", baseBalance: 0, kind: "credit_card", creditLimit: 10000, creditPaymentDay: 2 }],
+    operations: [op({ id: "p", accountId: "c", amount: 500, date: "2026-09-10" })],
+  });
+  const cardRec = withRec(card, "c", -800);
+  eq(creditCardDebt(cardRec, "c"), 800, "долг по карте после сверки 800");
 }
 
 // ---- Ответы хаба: отказ больше не выдаётся за успех ----

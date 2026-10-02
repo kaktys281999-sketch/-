@@ -283,6 +283,16 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
                 />
               </div>
             </div>
+            {a.reconciled && (
+              <div className="mt-1 text-right text-[12px] text-label-3">
+                сверено {formatDateShort(a.reconciled.date)}
+                {Math.round(a.reconciled.adjustment ?? 0) !== 0
+                  ? ` · поправка ${a.reconciled.adjustment > 0 ? "+" : "−"}${formatMoney(
+                      Math.abs(a.reconciled.adjustment)
+                    )}`
+                  : ""}
+              </div>
+            )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -531,8 +541,10 @@ function AccountsCard({ fieldCls }: { fieldCls: string }) {
         </Card>
       )}
       <p className="mt-1.5 px-1 text-[13px] text-label-2">
-        У кредитки текущий долг хранится как отрицательный баланс. Траты с неё
-        увеличивают долг, а оплата проходит переводом с обычного счёта.
+        Остаток — это сверка с банком на сегодня: операции, дописанные или
+        исправленные задним числом, его уже не сдвигают. У кредитки вводится
+        текущий долг; траты с неё увеличивают долг, а оплата проходит переводом
+        с обычного счёта.
       </p>
     </div>
   );
