@@ -202,7 +202,10 @@ export function OperationForm({
         category: isTransfer ? "" : draft.category,
         accountId: draft.accountId,
         ...(isTransfer ? { toAccountId: draft.toAccountId } : {}),
-        date: draft.date,
+        // Запоминаем только намеренно другую дату (пакетный ввод задним
+        // числом). Сегодняшняя дата не запоминается, иначе после полуночи
+        // форма подставила бы вчерашнюю.
+        ...(draft.date !== todayISO() ? { date: draft.date } : {}),
       });
       setDraft(makeFresh());
     }
@@ -218,11 +221,19 @@ export function OperationForm({
   const toAccount = state.accounts.find((a) => a.id === draft.toAccountId);
   // Счёт сверен позже даты записи — значит, эта запись уже учтена в
   // сверенном остатке и его не изменит. Лучше сказать об этом сразу.
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(draft.date);
   const reconciledHints = [fromAccount, draft.type === "transfer" ? toAccount : undefined]
     .filter((a): a is NonNullable<typeof a> => Boolean(a))
     .flatMap((a) => {
       const r = activeReconciliation(a);
-      return r && draft.date < r.date
+      if (!r || !validDate || draft.date >= r.date) return [];
+      // При правке утверждение верно, только если и исходная запись уже была
+      // учтена сверкой этого счёта; иначе перенос даты назад как раз изменит остаток.
+      const originalCovered =
+        !initial ||
+        (initial.date < r.date &&
+          (initial.accountId === a.id || initial.toAccountId === a.id));
+      return originalCovered
         ? [
             `Счёт «${a.name}» сверен ${formatDateShort(r.date)}: запись с более ранней датой уже учтена в его остатке и не изменит его`,
           ]
@@ -466,7 +477,7 @@ export function OperationForm({
             required
           />
         </div>
-        {!initial && draft.date !== todayISO() && (
+        {!initial && validDate && draft.date !== todayISO() && (
           <p className="mt-1.5 text-[12px] font-medium text-amber-700 dark:text-amber-300">
             Дата не сегодняшняя: {formatDateLong(draft.date)}
           </p>
