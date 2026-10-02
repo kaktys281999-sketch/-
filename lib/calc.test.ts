@@ -898,38 +898,49 @@ eq(
     { id: "sber", name: "Сбер", baseBalance: 0 },
     { id: "cash", name: "Наличные", baseBalance: 0 },
   ];
+  const NOW = 1_000_000_000;
   const after = freshDraft(
     { type: "transfer", category: "", accountId: "yandex", toAccountId: "sber", date: "2026-10-01" },
-    accs, "yandex", "2026-10-01"
+    accs, "yandex", "2026-10-01", NOW
   );
   eq([after.type, after.accountId, after.toAccountId, after.category], ["transfer", "yandex", "sber", ""],
     "после перевода черновик снова перевод с тем же получателем");
   // старая память без получателя (так писала прежняя версия)
   const legacy = freshDraft(
     { type: "transfer", category: "", accountId: "yandex", date: "2026-10-01" },
-    accs, "yandex", "2026-10-01"
+    accs, "yandex", "2026-10-01", NOW
   );
   eq([legacy.type, legacy.toAccountId], ["transfer", "sber"], "старая память без получателя не роняет форму");
   // получатель удалён — берём другой счёт, но не источник
   const gone = freshDraft(
     { type: "transfer", category: "", accountId: "yandex", toAccountId: "deleted", date: "2026-10-01" },
-    accs, "yandex", "2026-10-01"
+    accs, "yandex", "2026-10-01", NOW
   );
   eq(gone.toAccountId, "sber", "удалённый получатель заменён другим счётом");
   // один счёт — перевод невозможен, откатываемся к расходу
   const single = freshDraft(
     { type: "transfer", category: "", accountId: "yandex", toAccountId: "sber", date: "2026-10-01" },
-    [accs[0]], "yandex", "2026-10-01"
+    [accs[0]], "yandex", "2026-10-01", NOW
   );
   eq(single.type, "expense_personal", "при одном счёте вместо перевода обычный расход");
   eq(pickToAccount(accs, "sber", "sber"), "yandex", "получатель не может совпасть с источником");
   // обычный расход по-прежнему запоминается
   const exp = freshDraft(
-    { type: "expense_personal", category: "Рестораны и кафе", accountId: "sber", date: "2026-09-30" },
-    accs, "yandex", "2026-10-01"
+    { type: "expense_personal", category: "Рестораны и кафе", accountId: "sber", date: "2026-09-30", savedAt: NOW },
+    accs, "yandex", "2026-10-01", NOW + 60_000
   );
   eq([exp.type, exp.category, exp.accountId, exp.date], ["expense_personal", "Рестораны и кафе", "sber", "2026-09-30"],
-    "память расхода: тип, категория, счёт, дата");
+    "память расхода: тип, категория, счёт, дата (пакетный ввод)");
+  const stale = freshDraft(
+    { type: "expense_personal", category: "Рестораны и кафе", accountId: "sber", date: "2026-09-30", savedAt: NOW },
+    accs, "yandex", "2026-10-01", NOW + 3 * 60 * 60 * 1000
+  );
+  eq([stale.category, stale.date], ["Рестораны и кафе", "2026-10-01"], "через 3 часа дата снова сегодняшняя, категория помнится");
+  const legacyDate = freshDraft(
+    { type: "expense_personal", category: "Рестораны и кафе", accountId: "sber", date: "2026-09-30" },
+    accs, "yandex", "2026-10-01", NOW
+  );
+  eq(legacyDate.date, "2026-10-01", "старая память без времени — дата сегодняшняя");
 }
 
 // ---- Счета Альфа-Банка ----
@@ -1345,6 +1356,39 @@ eq(ensureAlfaAccounts([{ id: "m", name: "Альфа банк", baseBalance: 0 }]
   const accF = recF.accounts.find((a) => a.id === "sber")!;
   eq([accF.reconciled!.adjustment, currentBalance(recF, "sber"), accF.baseBalance + 0 - 2000], [0, 3000, 3000],
     "банк и приложение на сегодня совпали — поправки нет; старые версии покажут то же");
+}
+
+// ---- Календарь: просроченное из прошлых месяцев переносится в текущий ----
+{
+  const st = state({
+    credits: [credit({ id: "yb", name: "Яндекс банк", payment: 8209, count: 3,
+      paymentDates: ["2026-09-29", "2026-10-29", "2026-11-29"], payments: [] })],
+    debts: [
+      debt({ id: "mama", direction: "i_owe", person: "Мама", amount: 11000, dueDate: "2026-09-30" }),
+      debt({ id: "paid", direction: "i_owe", person: "Боря", amount: 500, dueDate: "2026-09-10",
+        payments: [{ id: "p", date: "2026-09-10", amount: 500, accountId: "sber" }] }),
+      debt({ id: "me", direction: "owed_to_me", person: "Ира", amount: 700, dueDate: "2026-09-15" }),
+    ],
+    recurring: [
+      rule({ id: "claude", kind: "subscription", title: "Claude", amount: 25000, dayOfMonth: 26, startMonth: "2026-06" }),
+      rule({ id: "icloud", kind: "subscription", title: "iCloud", amount: 300, dayOfMonth: 2, startMonth: "2026-06" }),
+    ],
+    operations: [op({ id: "rec-icloud-2026-09", recurringId: "icloud", amount: 300, date: "2026-09-02" })],
+  });
+  const oct = paymentCalendar(st, "2026-10", "2026-10-02");
+  const carried = oct.filter((i) => i.carried).map((i) => [i.key, i.date, i.amount]);
+  eq(carried, [
+    ["sub-claude-2026-09", "2026-09-26", 25000],
+    ["credit-yb-0", "2026-09-29", 8209],
+    ["debt-mama", "2026-09-30", 11000],
+  ], "в октябрь перенесены: сентябрьская подписка, платёж по кредиту и долг");
+  eq(oct.some((i) => i.key === "credit-yb-1" && !i.carried), true, "октябрьский платёж по кредиту на месте");
+  // в прошлом месяце (не текущем) переноса нет
+  eq(paymentCalendar(st, "2026-11", "2026-10-02").some((i) => i.carried), false, "будущий месяц без переноса");
+  eq(paymentCalendar(st, "2026-09", "2026-10-02").some((i) => i.carried), false, "прошлый месяц без переноса");
+  // оплатили кредит — из переноса ушёл
+  const paidCredit = { ...st, credits: st.credits.map((c) => ({ ...c, payments: [{ id: "x", date: "2026-10-02", amount: 8209, accountId: "yandex" }] })) };
+  eq(paymentCalendar(paidCredit, "2026-10", "2026-10-02").some((i) => i.key === "credit-yb-0"), false, "оплаченный прошлый платёж не переносится");
 }
 
 // ---- Ответы хаба: отказ больше не выдаётся за успех ----

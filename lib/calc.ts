@@ -369,6 +369,8 @@ export interface PaymentCalendarItem {
   kind: PaymentCalendarKind;
   paid?: boolean;
   manualAmount?: boolean;
+  // неоплаченное из прошлых месяцев, перенесённое в текущий
+  carried?: boolean;
 }
 
 function plannedDateInMonth(dayOfMonth: number, month: string): string {
@@ -416,6 +418,11 @@ export function paymentCalendar(
     }
   }
 
+  // В текущем месяце показываем и неоплаченное из прошлых: платёж по кредиту от
+  // 29-го, долг со сроком 30-го. Раньше месяц начинался «с чистого листа», и
+  // итог «к оплате» в октябре был на треть меньше реального.
+  const isCurrentMonth = monthKeyFromISO(today) === month;
+
   for (const c of activeCredits(state)) {
     const scheduledDates =
       c.count > 0 ? c.paymentDates.slice(0, c.count) : c.paymentDates;
@@ -424,9 +431,13 @@ export function paymentCalendar(
     const paidK = c.payments.reduce((sum, p) => sum + Math.round(p.amount * 100), 0);
     const payK = Math.round(c.payment * 100);
     for (const [index, date] of scheduledDates.entries()) {
-      if (monthKeyFromISO(date) !== month || payK <= 0) continue;
+      if (payK <= 0) continue;
+      const dateMonth = monthKeyFromISO(date);
+      const carried = isCurrentMonth && dateMonth < month;
+      if (dateMonth !== month && !carried) continue;
       const paidTowardThisK = Math.min(payK, Math.max(0, paidK - payK * index));
       const remaining = (payK - paidTowardThisK) / 100;
+      if (carried && remaining <= 0) continue; // прошлые оплаченные не тащим
       items.push({
         key: `credit-${c.id}-${index}`,
         date,
@@ -434,27 +445,45 @@ export function paymentCalendar(
         amount: remaining > 0 ? remaining : c.payment,
         kind: "credit",
         paid: remaining <= 0,
+        ...(carried ? { carried: true } : {}),
       });
     }
   }
 
   for (const d of state.debts ?? []) {
-    if (
-      d.deleted ||
-      d.direction !== "i_owe" ||
-      !d.dueDate ||
-      monthKeyFromISO(d.dueDate) !== month ||
-      isDebtSettled(d)
-    ) {
+    if (d.deleted || d.direction !== "i_owe" || !d.dueDate || isDebtSettled(d)) {
       continue;
     }
+    const dueMonth = monthKeyFromISO(d.dueDate);
+    const carried = isCurrentMonth && dueMonth < month;
+    if (dueMonth !== month && !carried) continue;
     items.push({
       key: `debt-${d.id}`,
       date: d.dueDate,
       title: `Долг «${d.person || "без имени"}»`,
       amount: debtOutstanding(d),
       kind: "debt",
+      ...(carried ? { carried: true } : {}),
     });
+  }
+
+  // Подписки: неоплаченный экземпляр прошлого месяца (ровно один шаг назад,
+  // как в напоминаниях subscriptionsDue).
+  if (isCurrentMonth) {
+    const prev = shiftMonth(month, -1);
+    for (const r of state.recurring ?? []) {
+      if (r.deleted || r.active === false || r.kind !== "subscription") continue;
+      if (!r.startMonth || r.startMonth > prev) continue;
+      if (liveOperationIds.has(subscriptionOpId(r.id, prev))) continue;
+      items.push({
+        key: `sub-${r.id}-${prev}`,
+        date: plannedDateInMonth(r.dayOfMonth, prev),
+        title: `Подписка «${r.title || r.category}»`,
+        amount: r.amount,
+        kind: "subscription",
+        carried: true,
+      });
+    }
   }
 
   for (const a of state.accounts) {

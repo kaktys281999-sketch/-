@@ -9,14 +9,19 @@ import { formatMoney, monthKeyFromISO } from "@/lib/format";
 
 export function AddOperation({
   onShowMonth,
+  initialPrefill,
 }: {
   onShowMonth?: (monthKey: string) => void;
+  // черновик, с которым открыть форму (перевод со счёта со «Сводки»)
+  initialPrefill?: Partial<Omit<Operation, "id">>;
 }) {
   const { state, addOperation, addTemplate, deleteTemplate } = useStore();
   // дата последней добавленной операции — чтобы открыть её месяц в списке
   const [lastAddedDate, setLastAddedDate] = useState<string | null>(null);
   // префилл из шаблона; ключ перезапускает форму
-  const [prefill, setPrefill] = useState<Partial<Omit<Operation, "id">>>();
+  const [prefill, setPrefill] = useState<Partial<Omit<Operation, "id">> | undefined>(
+    initialPrefill
+  );
   const [formKey, setFormKey] = useState(0);
   // текущий черновик формы — для «сохранить как шаблон»
   const [draft, setDraft] = useState<Omit<Operation, "id"> | null>(null);

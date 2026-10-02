@@ -8,14 +8,15 @@ import {
   creditCardDebt,
   creditCardAvailable,
   creditCardOverpay,
+  activeReconciliation,
 } from "@/lib/store";
-import { todayISO, formatMoney } from "@/lib/format";
+import { todayISO, formatMoney, formatDateLong, formatDateShort } from "@/lib/format";
 import { getLastUsed, setLastUsed } from "@/lib/lastUsed";
 import {
   OperationDraft,
   freshDraft,
   pickToAccount,
-  rememberedDate,
+  rememberedDateFor,
 } from "@/lib/draft";
 import { accountColor } from "@/lib/accounts";
 
@@ -79,7 +80,7 @@ export function OperationForm({
   // Свежий черновик: подставляем последний использованный набор,
   // иначе — дефолт «Расход / Продукты». Счёт берём из памяти, если он есть.
   const makeFresh = (): OperationDraft =>
-    freshDraft(getLastUsed(), state.accounts, defaultAccount, todayISO());
+    freshDraft(getLastUsed(), state.accounts, defaultAccount, todayISO(), Date.now());
 
   const [draft, setDraft] = useState<OperationDraft>(() => {
     const src = initial ?? prefill;
@@ -88,7 +89,7 @@ export function OperationForm({
       const type = src.type ?? TYPES[0].type;
       const accountId = src.accountId ?? defaultAccount;
       return {
-        date: initial?.date ?? src.date ?? rememberedDate(last?.date, todayISO()),
+        date: initial?.date ?? src.date ?? rememberedDateFor(last, todayISO(), Date.now()),
         type,
         category: src.category ?? getTypeDef(type).categories[0]?.name ?? "",
         amount: src.amount ? String(src.amount) : "",
@@ -215,6 +216,18 @@ export function OperationForm({
     Math.abs(Number(draft.amount.replace(/\s/g, "").replace(",", "."))) || 0;
   const fromAccount = state.accounts.find((a) => a.id === draft.accountId);
   const toAccount = state.accounts.find((a) => a.id === draft.toAccountId);
+  // Счёт сверен позже даты записи — значит, эта запись уже учтена в
+  // сверенном остатке и его не изменит. Лучше сказать об этом сразу.
+  const reconciledHints = [fromAccount, draft.type === "transfer" ? toAccount : undefined]
+    .filter((a): a is NonNullable<typeof a> => Boolean(a))
+    .flatMap((a) => {
+      const r = activeReconciliation(a);
+      return r && draft.date < r.date
+        ? [
+            `Счёт «${a.name}» сверен ${formatDateShort(r.date)}: запись с более ранней датой уже учтена в его остатке и не изменит его`,
+          ]
+        : [];
+    });
   const fromCreditCard = fromAccount?.kind === "credit_card";
   const toCreditCard = toAccount?.kind === "credit_card";
   // При редактировании подсказки считаем без самой редактируемой операции,
@@ -453,6 +466,16 @@ export function OperationForm({
             required
           />
         </div>
+        {!initial && draft.date !== todayISO() && (
+          <p className="mt-1.5 text-[12px] font-medium text-amber-700 dark:text-amber-300">
+            Дата не сегодняшняя: {formatDateLong(draft.date)}
+          </p>
+        )}
+        {reconciledHints.map((h) => (
+          <p key={h} className="mt-1.5 text-[12px] text-label-2">
+            {h}
+          </p>
+        ))}
       </div>
 
       <div>

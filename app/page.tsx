@@ -2,6 +2,7 @@
 
 import { useEffect, useState, ComponentType } from "react";
 import { monthKey } from "@/lib/format";
+import { Operation } from "@/lib/types";
 import { MonthSwitcher } from "@/components/MonthSwitcher";
 import { Summary } from "@/components/Summary";
 import { AddOperation } from "@/components/AddOperation";
@@ -54,6 +55,20 @@ export default function Home() {
     seq: 0,
   });
 
+  // Переход в «Добавить» с готовым черновиком (например, перевод со счёта,
+  // нажатый на «Сводке»). Сбрасывается при любом другом выборе вкладки.
+  const [addPrefill, setAddPrefill] = useState<Partial<Omit<Operation, "id">> | undefined>();
+
+  function goTab(id: Tab) {
+    setAddPrefill(undefined);
+    setTab(id);
+  }
+
+  function openTransferFrom(accountId: string) {
+    setAddPrefill({ type: "transfer", category: "", accountId });
+    setTab("add");
+  }
+
   function openSearch(q: string) {
     setOpsSearch((s) => ({ q, seq: s.seq + 1 }));
     setTab("operations");
@@ -91,7 +106,7 @@ export default function Home() {
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setTab(id)}
+                  onClick={() => goTab(id)}
                   className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-medium transition ${
                     active
                       ? "bg-brand text-white shadow-sm"
@@ -143,11 +158,13 @@ export default function Home() {
               onOpenCredits={() => setTab("credits")}
               onOpenSubscriptions={() => setTab("subscriptions")}
               onOpenSearch={openSearch}
+              onTransferFrom={openTransferFrom}
             />
           )}
           {tab === "add" && (
             <div className="md:mx-auto md:max-w-xl">
               <AddOperation
+                initialPrefill={addPrefill}
                 onShowMonth={(m) => {
                   setMonth(m);
                   setTab("operations");
@@ -192,7 +209,7 @@ export default function Home() {
               <button
                 key={id}
                 type="button"
-                onClick={() => setTab(id)}
+                onClick={() => goTab(id)}
                 aria-label={label}
                 aria-current={active ? "page" : undefined}
                 className={`flex min-w-0 flex-1 flex-col items-center gap-1 pb-1.5 pt-2 transition-colors ${

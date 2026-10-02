@@ -72,6 +72,7 @@ export function Summary({
   onOpenCredits,
   onOpenSubscriptions,
   onOpenSearch,
+  onTransferFrom,
 }: {
   month: string;
   onSelectMonth?: (key: string) => void;
@@ -79,6 +80,7 @@ export function Summary({
   onOpenCredits?: () => void;
   onOpenSubscriptions?: () => void;
   onOpenSearch?: (query: string) => void;
+  onTransferFrom?: (accountId: string) => void;
 }) {
   const {
     state,
@@ -395,7 +397,20 @@ export function Summary({
               />
               <span className="block min-w-0 truncate">{a.name}</span>
             </span>
-            <Money value={currentBalance(state, a.id)} className="shrink-0" />
+            <span className="flex shrink-0 items-center gap-2">
+              <Money value={currentBalance(state, a.id)} className="shrink-0" />
+              {onTransferFrom && state.accounts.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => onTransferFrom(a.id)}
+                  aria-label={`Перевести с «${a.name}»`}
+                  title="Перевести"
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.05] text-[15px] text-brand active:scale-95 dark:bg-white/10"
+                >
+                  ⇄
+                </button>
+              )}
+            </span>
           </div>
         ))}
         {creditCardAccounts.length > 0 && (
@@ -827,6 +842,10 @@ function PaymentCalendarSection({
     .reduce((sum, item) => sum + item.amount, 0);
   const manualCount = items.filter((item) => !item.paid && item.manualAmount).length;
   const unpaidCount = items.filter((item) => !item.paid).length;
+  // перенесённое из прошлых месяцев (просрочка) — уже входит в итог выше
+  const carriedSum = items
+    .filter((item) => item.carried && !item.paid && !item.manualAmount)
+    .reduce((sum, item) => sum + item.amount, 0);
   const cells = calendarCells(month);
   const totalRows = Math.ceil(cells.length / 7);
 
@@ -853,6 +872,11 @@ function PaymentCalendarSection({
                   ? "Сумма вручную"
                   : "0 ₽"}
             </div>
+            {carriedSum > 0 && (
+              <div className="mt-1 text-[12px] font-medium text-red-600 dark:text-red-400">
+                в т.ч. просрочено с прошлых месяцев {formatMoney(carriedSum)}
+              </div>
+            )}
           </div>
           <div className="max-w-[48%] text-right text-[12px] leading-snug text-label-2">
             {unpaidCount > 0

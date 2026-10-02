@@ -20,6 +20,21 @@ export function rememberedDate(date: string | undefined, today: string): string 
   return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : today;
 }
 
+// Дата прошлой записи подставляется, пока идёт пакетный ввод задним числом,
+// но не дольше 2 часов. Раньше она помнилась вечно, и сегодняшняя трата легко
+// записывалась вчерашним или прошлонедельным числом — а у сверенного счёта
+// такая запись ещё и не меняет остаток.
+export const DATE_MEMORY_MS = 2 * 60 * 60 * 1000;
+
+export function rememberedDateFor(
+  last: LastUsed | null,
+  today: string,
+  now: number
+): string {
+  if (!last?.date || !last.savedAt || now - last.savedAt > DATE_MEMORY_MS) return today;
+  return rememberedDate(last.date, today);
+}
+
 export function emptyDraft(
   defaultAccount: string,
   today: string,
@@ -60,11 +75,13 @@ export function freshDraft(
   last: LastUsed | null,
   accounts: Account[],
   defaultAccount: string,
-  today: string
+  today: string,
+  now: number
 ): OperationDraft {
+  const date = rememberedDateFor(last, today, now);
   // скрытый из формы тип (кредиты/займы) не подставляем
   if (!last || last.type === "credit_loan") {
-    return emptyDraft(defaultAccount, today, last?.date);
+    return emptyDraft(defaultAccount, today, date);
   }
   const accountId = accounts.some((a) => a.id === last.accountId)
     ? last.accountId
@@ -75,9 +92,9 @@ export function freshDraft(
     // устройстве, поэтому падала и каждая следующая попытка открыть
     // «Добавить»: перевод записывался, а экран ввода становился недоступен.
     const toAccountId = pickToAccount(accounts, accountId, last.toAccountId);
-    if (!toAccountId) return emptyDraft(defaultAccount, today, last.date);
+    if (!toAccountId) return emptyDraft(defaultAccount, today, date);
     return {
-      date: rememberedDate(last.date, today),
+      date,
       type: "transfer",
       category: "",
       amount: "",
@@ -91,7 +108,7 @@ export function freshDraft(
     ? last.category
     : def.categories[0]?.name ?? "";
   return {
-    date: rememberedDate(last.date, today),
+    date,
     type: last.type,
     category,
     amount: "",
