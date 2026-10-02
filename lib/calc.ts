@@ -181,6 +181,81 @@ export function nextCreditCardDueDate(
   return creditCardDueDate(account, shiftMonth(month, 1));
 }
 
+// ===== Кредитка: один платёж за цикл =====
+// Сумма платежа по карте каждый месяц разная, и владелец вносит её один раз.
+// Раньше напоминание держалось на «долг > 0»: после оплаты новые покупки снова
+// давали долг, и оно висело дальше; а через день после срока пропадало, даже
+// если платить забыли. Теперь срок считается оплаченным, если в его окне есть
+// хоть один перевод на карту.
+//
+// Окно срока D: от (предыдущий срок + 10 дней) не включая до (D + 10 дней)
+// включительно. Окна стыкуются без зазоров, поэтому любой платёж относится
+// ровно к одному сроку — и внесённый заранее, и на несколько дней позже.
+export const CARD_PAYMENT_GRACE_DAYS = 10;
+
+function addDaysISO(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+}
+
+// Сколько внесено на карту переводами с других счетов в (from, to].
+export function creditCardPaidBetween(
+  state: AppState,
+  accountId: string,
+  from: string,
+  to: string
+): number {
+  let sum = 0;
+  for (const o of state.operations) {
+    if (o.deleted || o.type !== "transfer" || o.toAccountId !== accountId) continue;
+    if (o.accountId === accountId) continue;
+    if (o.date > from && o.date <= to) sum += o.amount;
+  }
+  for (const t of state.transfers ?? []) {
+    if (t.deleted || t.toAccountId !== accountId || t.fromAccountId === accountId) continue;
+    if (t.date > from && t.date <= to) sum += t.amount;
+  }
+  return round2(sum);
+}
+
+export interface CardCycle {
+  due: string; // срок платежа
+  from: string; // окно платежей: после этой даты…
+  to: string; // …и по эту включительно
+  paidAmount: number; // внесено в окне
+  paid: boolean;
+}
+
+// Цикл карты со сроком в месяце month (YYYY-MM).
+export function creditCardCycleForMonth(
+  state: AppState,
+  account: Account,
+  month: string
+): CardCycle | null {
+  const due = creditCardDueDate(account, month);
+  const prevDue = creditCardDueDate(account, shiftMonth(month, -1));
+  if (!due || !prevDue) return null;
+  const from = addDaysISO(prevDue, CARD_PAYMENT_GRACE_DAYS);
+  const to = addDaysISO(due, CARD_PAYMENT_GRACE_DAYS);
+  const paidAmount = creditCardPaidBetween(state, account.id, from, to);
+  return { due, from, to, paidAmount, paid: paidAmount > 0 };
+}
+
+// Текущий цикл карты: тот, в окно которого попадает today.
+export function creditCardCurrentCycle(
+  state: AppState,
+  account: Account,
+  today: string
+): CardCycle | null {
+  const month = monthKeyFromISO(today);
+  for (const m of [shiftMonth(month, -1), month, shiftMonth(month, 1)]) {
+    const c = creditCardCycleForMonth(state, account, m);
+    if (c && today > c.from && today <= c.to) return c;
+  }
+  return null;
+}
+
 export function creditCardDebt(state: AppState, accountId: string): number {
   const acc = state.accounts.find((a) => a.id === accountId);
   if (!acc || acc.kind !== "credit_card") return 0;
@@ -316,17 +391,29 @@ export function paymentCalendar(
     });
   }
 
-  const todayMonth = monthKeyFromISO(today);
   for (const a of state.accounts) {
     if (a.kind !== "credit_card") continue;
+    const cycle = creditCardCycleForMonth(state, a, month);
+    if (!cycle) continue;
+    if (cycle.paid) {
+      // оплаченный срок показываем с внесённой суммой
+      items.push({
+        key: `card-${a.id}`,
+        date: cycle.due,
+        title: `Оплата кредитки «${a.name}»`,
+        amount: cycle.paidAmount,
+        kind: "credit_card",
+        paid: true,
+      });
+      continue;
+    }
     const debt = creditCardDebt(state, a.id);
     if (debt <= 0) continue;
-    const date = creditCardDueDate(a, month);
-    if (!date) continue;
-    if (month < todayMonth || (month === todayMonth && date < today)) continue;
+    // неоплаченный срок висит, пока не закрылось окно его платежа (срок + 10 дней)
+    if (cycle.to < today) continue;
     items.push({
       key: `card-${a.id}`,
-      date,
+      date: cycle.due,
       title: `Оплата кредитки «${a.name}»`,
       amount: debt,
       kind: "credit_card",

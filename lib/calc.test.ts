@@ -38,6 +38,8 @@ import {
   creditCardDebtTotal,
   creditCardOverpay,
   restoreRecurringIds,
+  creditCardCurrentCycle,
+  creditCardCycleForMonth,
 } from "./calc";
 import { mergeStates, pull, push, toPayload, fromPayload, canonicalJson } from "./sync";
 import { freshDraft, pickToAccount } from "./draft";
@@ -402,12 +404,21 @@ eq(
   ],
   "календарь оплат собирает обязательства месяца"
 );
+// Неоплаченный срок кредитки (2 июля) не пропадает на следующий день:
+// висит просроченным, пока не закроется окно платежа (срок + 10 дней).
 eq(
-  paymentCalendar(paymentsCalendarState, "2026-07", "2026-07-09").some(
+  paymentCalendar(paymentsCalendarState, "2026-07", "2026-07-09")
+    .filter((p) => p.kind === "credit_card")
+    .map((p) => [p.date, Boolean(p.paid)]),
+  [["2026-07-02", false]],
+  "просроченная неоплаченная кредитка остаётся в календаре"
+);
+eq(
+  paymentCalendar(paymentsCalendarState, "2026-07", "2026-07-13").some(
     (p) => p.kind === "credit_card"
   ),
   false,
-  "календарь оплат не показывает прошедшую дату кредитки в текущем месяце"
+  "после окна платежа (срок + 10 дней) старый срок уходит, напоминать будет следующий"
 );
 
 // ---- accountMonthFlow ----
@@ -970,7 +981,7 @@ eq(
   });
   eq(currentBalance(st, "card"), 0, "баланс округлён до копеек");
   eq(creditCardDebt(st, "card"), 0, "нет фантомного долга 5,7e-14");
-  eq(paymentCalendar(st, "2026-05", "2026-05-01").filter((i) => i.kind === "credit_card").length, 0,
+  eq(paymentCalendar(st, "2026-05", "2026-05-01").filter((i) => i.kind === "credit_card" && !i.paid).length, 0,
     "в календаре нет «оплатить кредитку · долг 0 ₽»");
 }
 
@@ -1150,6 +1161,46 @@ eq(
 // ---- Альфа: «Альфа банк» и «Альфа-Банк» — одно имя ----
 eq(ensureAlfaAccounts([{ id: "m", name: "Альфа банк", baseBalance: 0 }]).map((a) => a.id), ["m", "alfa-business"],
   "имя с пробелом вместо дефиса не дублируется");
+
+// ---- Кредитка: один платёж за цикл ----
+{
+  const split = { id: "split", name: "Сплит", baseBalance: -7910, kind: "credit_card" as const, creditLimit: 15000, creditPaymentDay: 2 };
+  const pay = (date: string, amount: number) =>
+    op({ type: "transfer", category: "", accountId: "yandex", toAccountId: "split", amount, date });
+  const base = (ops: Operation[]) => state({ accounts: [{ id: "yandex", name: "Яндекс", baseBalance: 50000 }, split], operations: ops });
+
+  const c = creditCardCurrentCycle(base([]), split, "2026-10-02")!;
+  eq([c.due, c.from, c.to, c.paid], ["2026-10-02", "2026-09-12", "2026-10-12", false], "окно срока 2 октября: 13 сен — 12 окт");
+  eq(creditCardCurrentCycle(base([]), split, "2026-10-13")!.due, "2026-11-02", "с 13-го ждём следующий срок");
+  eq(creditCardCurrentCycle(base([]), split, "2026-09-12")!.due, "2026-09-02", "12-е — ещё окно прошлого срока");
+
+  // реальный случай: оплатили 2 сентября, долг снова есть от покупок
+  const sepPaid = base([pay("2026-09-02", 9325)]);
+  eq(creditCardCycleForMonth(sepPaid, split, "2026-09")!.paid, true, "сентябрь оплачен 2 сентября");
+  eq(creditCardCurrentCycle(sepPaid, split, "2026-10-02")!.paid, false, "сентябрьский платёж не закрывает октябрь");
+
+  // заплатили раньше срока (25 сен) — октябрь закрыт, напоминания нет
+  const early = base([pay("2026-09-02", 2000), pay("2026-09-25", 1000)]);
+  eq(creditCardCurrentCycle(early, split, "2026-09-28")!.paid, true, "платёж заранее закрывает свой срок");
+  eq(creditCardDebt(early, "split") > 0, true, "даже если долг по карте ещё остался");
+  // заплатили на 3 дня позже — тоже засчитано октябрю
+  const late = base([pay("2026-10-05", 4000)]);
+  eq(creditCardCycleForMonth(late, split, "2026-10")!.paid, true, "платёж через 3 дня после срока засчитан этому сроку");
+  eq(creditCardCycleForMonth(late, split, "2026-11")!.paid, false, "и не следующему");
+  // календарь показывает оплаченный срок с суммой
+  const cal = paymentCalendar(late, "2026-10", "2026-10-06").filter((i) => i.kind === "credit_card");
+  eq(cal.map((i) => [i.date, i.amount, Boolean(i.paid)]), [["2026-10-02", 4000, true]], "календарь: срок оплачен, внесено 4 000");
+  // покупка с карты — не платёж
+  const spend = base([op({ accountId: "split", amount: 500, date: "2026-09-20" })]);
+  eq(creditCardCurrentCycle(spend, split, "2026-10-01")!.paid, false, "трата с карты платежом не считается");
+  // удалённый платёж не считается
+  const deletedPay = base([{ ...pay("2026-09-30", 3000), deleted: true }]);
+  eq(creditCardCurrentCycle(deletedPay, split, "2026-10-01")!.paid, false, "удалённый платёж не считается");
+  // день оплаты 31 в феврале
+  const card31 = { ...split, creditPaymentDay: 31 };
+  const feb = creditCardCycleForMonth(base([]), card31, "2026-02")!;
+  eq([feb.due, feb.from, feb.to], ["2026-02-28", "2026-02-10", "2026-03-10"], "31-е в феврале: срок 28-го");
+}
 
 // ---- Ответы хаба: отказ больше не выдаётся за успех ----
 async function hubTests() {

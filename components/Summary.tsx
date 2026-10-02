@@ -20,7 +20,7 @@ import {
   expensePace,
   notesBreakdown,
   creditCardDebt,
-  nextCreditCardDueDate,
+  creditCardCurrentCycle,
   creditCardAvailable,
   creditCardOverpay,
 } from "@/lib/store";
@@ -177,16 +177,19 @@ export function Summary({
       onOpen: onOpenDebts,
     });
   }
+  // Кредитка: напоминание висит, пока за текущий цикл не внесён хоть один
+  // платёж (сумма каждый месяц своя). После срока — как просроченное.
   for (const a of state.accounts) {
     if (a.kind !== "credit_card") continue;
+    const cycle = creditCardCurrentCycle(state, a, today);
+    if (!cycle || cycle.paid) continue;
     const amount = creditCardDebt(state, a.id);
     if (amount <= 0) continue;
-    const date = nextCreditCardDueDate(a, today);
-    if (!date) continue;
+    const date = cycle.due;
     const days = daysUntil(date);
     if (days > 7) continue;
     reminders.push({
-      key: `cc-${a.id}`,
+      key: `cc-${a.id}-${date}`,
       days,
       iso: date,
       title: `Оплата кредитки «${a.name}»`,
@@ -409,6 +412,14 @@ export function Summary({
           const debt = creditCardDebt(state, a.id);
           const overpay = creditCardOverpay(state, a.id);
           const limit = Math.max(0, a.creditLimit ?? 0);
+          const cycle = creditCardCurrentCycle(state, a, today);
+          const cycleNote = !cycle
+            ? ""
+            : cycle.paid
+              ? `платёж к ${formatDateShort(cycle.due)} внесён: ${formatMoney(cycle.paidAmount)} ✓`
+              : debt > 0
+                ? `оплатить до ${formatDateShort(cycle.due)}`
+                : "";
           const available = creditCardAvailable(state, a.id);
           return (
             <div
@@ -428,6 +439,17 @@ export function Summary({
                       : `долг ${formatMoney(debt)}`}
                     {limit > 0 ? ` · лимит ${formatMoney(limit)}` : ""}
                   </span>
+                  {cycleNote && (
+                    <span
+                      className={`block truncate text-[12px] ${
+                        cycle?.paid
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-amber-600 dark:text-amber-400"
+                      }`}
+                    >
+                      {cycleNote}
+                    </span>
+                  )}
                 </span>
               </span>
               <span className="shrink-0 text-right">
@@ -760,8 +782,8 @@ function paymentAmountText(item: PaymentCalendarItem): string {
 
 function paymentStateText(item: PaymentCalendarItem, today: string): string {
   if (item.paid) return "оплачено";
+  if (item.date < today) return item.manualAmount ? "просрочено · сумма вручную" : "просрочено";
   if (item.manualAmount) return "сумма вручную";
-  if (item.date < today) return "просрочено";
   return "к оплате";
 }
 
@@ -870,9 +892,7 @@ function PaymentCalendarSection({
               .reduce((sum, item) => sum + item.amount, 0);
             const hasManual = unpaid.some((item) => item.manualAmount);
             const isToday = iso === today;
-            const isOverdue = unpaid.some(
-              (item) => !item.manualAmount && item.date < today
-            );
+            const isOverdue = unpaid.some((item) => item.date < today);
             const allPaid = dayItems.length > 0 && unpaid.length === 0;
             const tooltipX =
               col <= 1
@@ -1002,7 +1022,7 @@ function PaymentCalendarSection({
           <div className="border-t border-[var(--separator)]">
             {items.map((item, index) => {
               const opener = openByKind(item.kind);
-              const overdue = !item.paid && !item.manualAmount && item.date < today;
+              const overdue = !item.paid && item.date < today;
               const amountText = paymentAmountText(item);
               const content = (
                 <>
@@ -1029,10 +1049,10 @@ function PaymentCalendarSection({
                     className={`shrink-0 text-right text-[15px] font-semibold ${
                       item.paid
                         ? "text-label-3"
-                        : item.manualAmount
-                          ? "text-amber-700 dark:text-amber-300"
-                          : overdue
-                            ? "text-red-600 dark:text-red-300"
+                        : overdue
+                          ? "text-red-600 dark:text-red-300"
+                          : item.manualAmount
+                            ? "text-amber-700 dark:text-amber-300"
                             : ""
                     }`}
                   >
