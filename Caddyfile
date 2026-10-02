@@ -1,0 +1,9 @@
+money.timur-ergashev.ru {
+	encode gzip
+
+	# Доп. конфиг (например, пароль basicauth) подключается отсюда.
+	# Файл caddy-conf.d/auth.caddy не в git и переживает обновления (git pull).
+	import /etc/caddy/conf.d/*.caddy
+
+	reverse_proxy app:3000
+}

@@ -1,0 +1,7 @@
+# Сюда Caddy подключает дополнительный конфиг для сайта.
+# Пароль (basicauth) кладётся рядом в auth.caddy — он НЕ в git и
+# переживает обновления (git pull --ff-only не тронет неотслеживаемый файл).
+# Пример auth.caddy:
+#   basicauth {
+#       timur $2a$14$....хэш-из-caddy-hash-password....
+#   }

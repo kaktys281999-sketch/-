@@ -1,6 +1,6 @@
 "use client";
 
-import { monthLabel, shiftMonth } from "@/lib/format";
+import { monthKey, monthLabel, shiftMonth } from "@/lib/format";
 
 export function MonthSwitcher({
   value,
@@ -9,21 +9,32 @@ export function MonthSwitcher({
   value: string;
   onChange: (key: string) => void;
 }) {
+  const current = monthKey(new Date());
+  const isCurrent = value === current;
   return (
-    <div className="flex items-center justify-between rounded-2xl bg-white p-2 shadow-sm">
+    <div className="flex items-center justify-between rounded-xl bg-black/5 p-1 dark:bg-white/10">
       <button
         type="button"
         onClick={() => onChange(shiftMonth(value, -1))}
-        className="flex h-10 w-10 items-center justify-center rounded-xl text-2xl text-slate-600 active:bg-slate-100"
+        className="flex h-9 w-12 items-center justify-center rounded-lg text-xl text-brand active:bg-black/5 dark:active:bg-white/10"
         aria-label="Предыдущий месяц"
       >
         ‹
       </button>
-      <span className="text-base font-semibold">{monthLabel(value)}</span>
+      <button
+        type="button"
+        onClick={() => !isCurrent && onChange(current)}
+        disabled={isCurrent}
+        className="text-[15px] font-semibold tracking-tight disabled:cursor-default"
+        title={isCurrent ? undefined : "К текущему месяцу"}
+      >
+        {monthLabel(value)}
+        {!isCurrent && <span className="ml-1.5 text-[12px] text-brand">сегодня</span>}
+      </button>
       <button
         type="button"
         onClick={() => onChange(shiftMonth(value, 1))}
-        className="flex h-10 w-10 items-center justify-center rounded-xl text-2xl text-slate-600 active:bg-slate-100"
+        className="flex h-9 w-12 items-center justify-center rounded-lg text-xl text-brand active:bg-black/5 dark:active:bg-white/10"
         aria-label="Следующий месяц"
       >
         ›
