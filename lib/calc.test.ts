@@ -46,7 +46,7 @@ import {
   accountWithoutReconciliation,
 } from "./calc";
 import { mergeStates, pull, push, toPayload, fromPayload, canonicalJson } from "./sync";
-import { freshDraft, pickToAccount } from "./draft";
+import { freshDraft, pickToAccount, findRecentDuplicate } from "./draft";
 import { ensureAlfaAccounts } from "./accounts";
 import { AppState, Operation, Debt, Credit, RecurringRule, Transfer } from "./types";
 
@@ -1389,6 +1389,21 @@ eq(ensureAlfaAccounts([{ id: "m", name: "Альфа банк", baseBalance: 0 }]
   // оплатили кредит — из переноса ушёл
   const paidCredit = { ...st, credits: st.credits.map((c) => ({ ...c, payments: [{ id: "x", date: "2026-10-02", amount: 8209, accountId: "yandex" }] })) };
   eq(paymentCalendar(paidCredit, "2026-10", "2026-10-02").some((i) => i.key === "credit-yb-0"), false, "оплаченный прошлый платёж не переносится");
+}
+
+// ---- Защита от двойного ввода ----
+{
+  const now = 1_000_000;
+  const t1 = op({ id: "t1", type: "transfer", category: "", amount: 3000, accountId: "cash", toAccountId: "sber",
+    date: "2026-09-21", updatedAt: now - 5000 });
+  const same: Omit<Operation, "id"> = { type: "transfer", category: "", amount: 3000, accountId: "cash", toAccountId: "sber",
+    date: "2026-09-21", note: "" };
+  eq(findRecentDuplicate([t1], same, now)?.id, "t1", "тот же перевод через 5 секунд — дубль");
+  eq(findRecentDuplicate([t1], same, now + 3 * 60 * 1000), undefined, "через 3 минуты — уже не считаем дублем");
+  eq(findRecentDuplicate([t1], { ...same, amount: 3001 }, now), undefined, "другая сумма — не дубль");
+  eq(findRecentDuplicate([t1], { ...same, toAccountId: "yandex" }, now), undefined, "другой получатель — не дубль");
+  eq(findRecentDuplicate([{ ...t1, deleted: true }], same, now), undefined, "удалённая запись не мешает");
+  eq(findRecentDuplicate([t1], { ...same, note: " " }, now)?.id, "t1", "пробел в заметке не делает запись другой");
 }
 
 // ---- Ответы хаба: отказ больше не выдаётся за успех ----

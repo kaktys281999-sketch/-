@@ -17,6 +17,7 @@ import {
   freshDraft,
   pickToAccount,
   rememberedDateFor,
+  findRecentDuplicate,
 } from "@/lib/draft";
 import { accountColor } from "@/lib/accounts";
 
@@ -186,7 +187,7 @@ export function OperationForm({
       return;
     }
     setError(false);
-    onSubmit({
+    const next: Omit<Operation, "id"> = {
       date: draft.date,
       type: draft.type,
       category: isTransfer ? "" : draft.category,
@@ -194,7 +195,17 @@ export function OperationForm({
       accountId: draft.accountId,
       ...(isTransfer ? { toAccountId: draft.toAccountId } : {}),
       note: draft.note.trim(),
-    });
+    };
+    if (
+      !initial &&
+      findRecentDuplicate(state.operations, next, Date.now()) &&
+      !confirm(
+        "Такая же операция только что добавлена. Добавить ещё одну такую же?"
+      )
+    ) {
+      return;
+    }
+    onSubmit(next);
     if (!initial) {
       // запоминаем набор для следующего раза и сбрасываем форму
       setLastUsed({

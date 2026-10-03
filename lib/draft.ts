@@ -1,4 +1,4 @@
-import { Account, OpType } from "./types";
+import { Account, Operation, OpType } from "./types";
 import { getTypeDef } from "./categories";
 import { LastUsed } from "./lastUsed";
 
@@ -116,4 +116,29 @@ export function freshDraft(
     toAccountId: "",
     note: "",
   };
+}
+
+// Такая же операция, добавленная только что (в пределах windowMs). Двойной
+// ввод уже случался: форма падала после перевода, и повторное «Добавить»
+// записывало копию. Теперь форма переспрашивает, а не молча пишет дубль.
+export const DUPLICATE_WINDOW_MS = 2 * 60 * 1000;
+
+export function findRecentDuplicate(
+  operations: Operation[],
+  op: Omit<Operation, "id">,
+  now: number,
+  windowMs: number = DUPLICATE_WINDOW_MS
+): Operation | undefined {
+  return operations.find(
+    (o) =>
+      !o.deleted &&
+      (o.updatedAt ?? 0) >= now - windowMs &&
+      o.type === op.type &&
+      o.amount === op.amount &&
+      o.accountId === op.accountId &&
+      (o.toAccountId ?? "") === (op.toAccountId ?? "") &&
+      o.date === op.date &&
+      o.category === op.category &&
+      (o.note ?? "").trim() === (op.note ?? "").trim()
+  );
 }
