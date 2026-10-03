@@ -1,7 +1,7 @@
 # Контекст проекта (для новой сессии)
 
 ## Что это
-Личный финансовый трекер — **PWA на Next.js 14 (App Router) + TypeScript + Tailwind**,
+Личный финансовый трекер — **PWA на Next.js 15 (App Router, React 19) + TypeScript + Tailwind**,
 эстетика iOS/Apple, бренд-цвет `#6926E3`, тёмная тема. Данные хранятся в браузере
 (localStorage) и синхронизируются с **хабом v2** — Google Apps Script с токеном
 (`apps-script/Code.gs`). Ссылка с `?token=` вводится на каждом устройстве в
@@ -56,6 +56,12 @@ PIN-шлюз nginx (страница `/lock`, cookie `money_gate`), а данн�
 на сервере (не в git) отключает Caddy и публикует app только на localhost.
 Обновление: на сервере в `/opt/money` — `./deploy.sh` (git pull + пересборка).
 Ночной бэкап хаба: cron `/opt/money-backups/backup.sh`.
+PIN-шлюз: страница `/lock` присылает sha256(PIN|соль) на `/unlock`, nginx
+сверяет его с ограничением частоты и выдаёт случайную HttpOnly-cookie. PIN из
+6 цифр; сменить его владелец может сам: `ssh -t root@5.53.125.80 money-set-pin`
+(PIN вводится в терминале и нигде не сохраняется).
+Перед выкаткой обязательно `npx tsc --noEmit --incremental false`: тесты (tsx)
+типы не проверяют, а `next build` на ошибке типов падает.
 Файлы Caddy и `docs/DEPLOY_RUNBOOK.md` описывают первоначальный вариант с
 basicauth и сейчас не используются.
 - Сервер: `5.53.125.80` · Домен: `money.timur-ergashev.ru`.
