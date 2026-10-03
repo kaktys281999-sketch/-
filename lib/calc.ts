@@ -860,6 +860,37 @@ export function currentBalance(state: AppState, accountId: string): number {
   return round2(acc.baseBalance + deltas.reduce((s, d) => s + d.delta, 0));
 }
 
+// Какие счета пора сверить с банком: давно не сверяли (по умолчанию 14 дней)
+// или не сверяли вовсе, а по счёту есть движение или остаток. Пустые
+// неиспользуемые счета не тревожат.
+export const RECONCILE_EVERY_DAYS = 14;
+
+export interface ReconcileDue {
+  account: Account;
+  lastDate: string | null; // дата последней действующей сверки
+  days: number | null; // сколько дней прошло (null — не сверялся)
+}
+
+export function accountsNeedingReconciliation(
+  state: AppState,
+  today: string,
+  everyDays: number = RECONCILE_EVERY_DAYS
+): ReconcileDue[] {
+  const out: ReconcileDue[] = [];
+  for (const a of state.accounts) {
+    const r = activeReconciliation(a);
+    if (r) {
+      const days = daysBetweenISO(r.date, today);
+      if (days >= everyDays) out.push({ account: a, lastDate: r.date, days });
+      continue;
+    }
+    const used =
+      accountDeltas(state, a.id).length > 0 || Math.abs(currentBalance(state, a.id)) >= 0.005;
+    if (used) out.push({ account: a, lastDate: null, days: null });
+  }
+  return out;
+}
+
 // Сверка с банком: «сегодня на счёте ровно value». Возвращает поля счёта.
 // baseBalance тоже пересчитывается — по нему считают версии приложения,
 // которые о сверке не знают.

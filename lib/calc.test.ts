@@ -44,6 +44,7 @@ import {
   accountBalanceAt,
   reconcileAccount,
   accountWithoutReconciliation,
+  accountsNeedingReconciliation,
 } from "./calc";
 import { mergeStates, pull, push, toPayload, fromPayload, canonicalJson } from "./sync";
 import { freshDraft, pickToAccount, findRecentDuplicate } from "./draft";
@@ -1389,6 +1390,26 @@ eq(ensureAlfaAccounts([{ id: "m", name: "Альфа банк", baseBalance: 0 }]
   // оплатили кредит — из переноса ушёл
   const paidCredit = { ...st, credits: st.credits.map((c) => ({ ...c, payments: [{ id: "x", date: "2026-10-02", amount: 8209, accountId: "yandex" }] })) };
   eq(paymentCalendar(paidCredit, "2026-10", "2026-10-02").some((i) => i.key === "credit-yb-0"), false, "оплаченный прошлый платёж не переносится");
+}
+
+// ---- Напоминание о сверке ----
+{
+  const rec = (date: string) => ({ date, balance: 100, at: 1, dayKeys: [], base: 100 });
+  const st = state({
+    accounts: [
+      { id: "fresh", name: "Сверен вчера", baseBalance: 100, reconciled: rec("2026-10-02") },
+      { id: "old", name: "Давно", baseBalance: 100, reconciled: rec("2026-09-15") },
+      { id: "never", name: "Не сверялся", baseBalance: 0 },
+      { id: "unused", name: "Пустой", baseBalance: 0 },
+      { id: "stale", name: "Устаревшая сверка", baseBalance: 555, reconciled: rec("2026-10-02") },
+    ],
+    operations: [op({ accountId: "never", amount: 50, date: "2026-09-20" })],
+  });
+  const due = accountsNeedingReconciliation(st, "2026-10-03").map((d) => [d.account.id, d.days]);
+  eq(due, [["old", 18], ["never", null], ["stale", null]],
+    "напоминаем: 18 дней без сверки, не сверялся с движением, сверка устарела; молчим про свежую и пустой");
+  eq(accountsNeedingReconciliation(st, "2026-10-03", 30).map((d) => d.account.id), ["never", "stale"],
+    "порог настраивается");
 }
 
 // ---- Защита от двойного ввода ----

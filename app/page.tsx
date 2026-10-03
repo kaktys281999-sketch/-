@@ -159,6 +159,7 @@ export default function Home() {
               onOpenSubscriptions={() => setTab("subscriptions")}
               onOpenSearch={openSearch}
               onTransferFrom={openTransferFrom}
+              onOpenSettings={() => goTab("settings")}
             />
           )}
           {tab === "add" && (

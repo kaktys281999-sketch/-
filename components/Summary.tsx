@@ -22,6 +22,7 @@ import {
   creditCardDebt,
   creditCardCurrentCycle,
   creditCardCycleNeedsPayment,
+  accountsNeedingReconciliation,
   creditCardAvailable,
   creditCardOverpay,
 } from "@/lib/store";
@@ -73,6 +74,7 @@ export function Summary({
   onOpenSubscriptions,
   onOpenSearch,
   onTransferFrom,
+  onOpenSettings,
 }: {
   month: string;
   onSelectMonth?: (key: string) => void;
@@ -81,6 +83,7 @@ export function Summary({
   onOpenSubscriptions?: () => void;
   onOpenSearch?: (query: string) => void;
   onTransferFrom?: (accountId: string) => void;
+  onOpenSettings?: () => void;
 }) {
   const {
     state,
@@ -235,6 +238,8 @@ export function Summary({
     .map((a) => ({ a, f: accountMonthFlow(state, a.id, month) }))
     .filter((x) => x.f.income > 0 || x.f.expense > 0);
   const regularAccounts = state.accounts.filter((a) => a.kind !== "credit_card");
+  // давно не сверенные с банком счета — мягкое напоминание в блоке счетов
+  const reconcileDue = accountsNeedingReconciliation(state, today);
   const creditCardAccounts = state.accounts.filter(
     (a) => a.kind === "credit_card"
   );
@@ -481,6 +486,29 @@ export function Summary({
             </div>
           );
         })}
+        {reconcileDue.length > 0 && (
+          <div className="flex items-center justify-between gap-3 border-t border-[var(--separator)] bg-amber-50 px-4 py-3 dark:bg-amber-950/30">
+            <span className="min-w-0 text-[13px] leading-snug text-amber-800 dark:text-amber-200">
+              Пора сверить с банком:{" "}
+              {reconcileDue
+                .map((d) =>
+                  d.days === null
+                    ? `${d.account.name} — ещё не сверен`
+                    : `${d.account.name} — ${d.days} дн.`
+                )
+                .join(", ")}
+            </span>
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="shrink-0 rounded-full bg-amber-500 px-3 py-1.5 text-[13px] font-semibold text-white active:scale-95"
+              >
+                Сверить
+              </button>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* Долги */}
