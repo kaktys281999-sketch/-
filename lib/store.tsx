@@ -44,11 +44,15 @@ import {
   legacyCreditToCredit,
   pull,
   push,
+  HubConflictError,
 } from "./sync";
 import { ensureAlfaAccounts } from "./accounts";
 
 const STORAGE_KEY = "finance-tracker-v1";
 const SYNC_KEY = "finance-tracker-sync-v1";
+// Сколько раз подряд круг повторяется, если хаб отклонил запись из-за чужой
+// свежей записи. Три отказа подряд почти невозможны, тогда обычная пауза.
+const MAX_CONFLICT_ATTEMPTS = 3;
 
 // Быстрые шаблоны видов транспорта: одна категория «Проезд / транспорт»,
 // вид — в заметке, сумма спрашивается при добавлении. Детерминированные id.
@@ -342,28 +346,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     lastRoundAt.current = Date.now();
     setSyncState((p) => ({ ...p, status: "syncing", message: "Синхронизация…" }));
     try {
-      const remote = await pull(url);
-      const local = stateRef.current;
       // Счета Альфы заводим на уже слитом состоянии: так видны удаления и
       // имена, пришедшие из таблицы.
       const seedAlfa = !alfaSeeded();
-      let merged = withAlfa(local, seedAlfa);
-      let remoteJson: string | null = null;
-      if (remote) {
-        const remoteState = fromPayload(remote);
-        remoteJson = canonicalJson(remoteState);
-        merged = withAlfa(mergeStates(local, remoteState), seedAlfa);
-        if (canonicalJson(merged) !== canonicalJson(local)) {
-          // Функциональное обновление: правки, сделанные, пока шёл запрос,
-          // не затираются, а сливаются с пришедшим из хаба.
-          setState((cur) => withAlfa(mergeStates(cur, remoteState), seedAlfa));
+      let json = "";
+      // Хаб сверяет версию: если между нашим чтением и записью туда успело
+      // записать другое устройство, запись отклоняется, и круг сразу
+      // повторяется на свежих данных. Раньше поздняя отправка молча затирала
+      // в хабе правку, сделанную на другом телефоне секундой раньше.
+      for (let attempt = 1; ; attempt++) {
+        const { payload: remote, rev } = await pull(url);
+        const local = stateRef.current;
+        let merged = withAlfa(local, seedAlfa);
+        let remoteJson: string | null = null;
+        if (remote) {
+          const remoteState = fromPayload(remote);
+          remoteJson = canonicalJson(remoteState);
+          merged = withAlfa(mergeStates(local, remoteState), seedAlfa);
+          if (canonicalJson(merged) !== canonicalJson(local)) {
+            // Функциональное обновление: правки, сделанные, пока шёл запрос,
+            // не затираются, а сливаются с пришедшим из хаба.
+            setState((cur) => withAlfa(mergeStates(cur, remoteState), seedAlfa));
+          }
+        } else if (merged !== local) {
+          setState((cur) => withAlfa(cur, seedAlfa));
         }
-      } else if (merged !== local) {
-        setState((cur) => withAlfa(cur, seedAlfa));
+        json = canonicalJson(merged);
+        // Хаб уже содержит то же самое (порядок записей не важен) — не пишем зря.
+        if (json === remoteJson) break;
+        try {
+          await push(url, toPayload(merged), rev);
+          break;
+        } catch (e) {
+          if (e instanceof HubConflictError && attempt < MAX_CONFLICT_ATTEMPTS) continue;
+          throw e;
+        }
       }
-      const json = canonicalJson(merged);
-      // Хаб уже содержит то же самое (порядок записей не важен) — не пишем зря.
-      if (json !== remoteJson) await push(url, toPayload(merged));
       if (seedAlfa) markAlfaSeeded();
       lastSyncedJson.current = json;
       failuresInRow.current = 0;

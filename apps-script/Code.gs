@@ -6,6 +6,11 @@
  *  - Каждый запрос (GET/POST) требует секретный ТОКЕН — иначе отклоняется.
  *  - Лист «Операции» по-прежнему ведётся как читаемая копия.
  *  - При чтении есть fallback на старую ячейку A1 (бесшовный переход без миграции).
+ *  - Номер версии документа (hubRev, с 03.10.2026). Устройство присылает версию,
+ *    на которой собирало отправку (baseRev). Если хаб за это время принял чужую
+ *    запись, он отвечает conflict и ничего не пишет, устройство забирает свежее,
+ *    сливает и отправляет снова. Так два телефона не затирают правки друг друга.
+ *    Отправка без baseRev (приложение старой версии) принимается как раньше.
  *
  * Токен НЕ хранится в коде — он в Script properties (ключ SYNC_TOKEN).
  * Развёртывание — см. DEPLOY.md рядом с этим файлом.
@@ -16,6 +21,8 @@ var OPS_SHEET = "Операции";           // читаемая копия о�
 var PROP_TOKEN = "SYNC_TOKEN";        // секрет (Project Settings → Script properties)
 var PROP_FILE_ID = "STATE_FILE_ID";   // id Drive-файла с состоянием (ставится автоматически)
 var STATE_FILENAME = "money-tracker-state.json";
+var REV_FIELD = "hubRev";             // версия документа, её ставит только хаб
+var BASE_FIELD = "baseRev";           // версия, на которой устройство собрало отправку
 
 var TYPE_LABELS = {
   income: "Доход",
@@ -101,23 +108,33 @@ function readState_() {
 
 function writeState_(payload) {
   // setContent заменяет содержимое целиком (читатель видит старую либо новую версию).
+  // Версия лежит в том же файле, что и данные, поэтому чтение всегда получает
+  // пару «данные и их версия» без расхождения.
   stateFile_().setContent(JSON.stringify(payload));
+}
+
+// Версия документа. Документ, записанный хабом старого образца, считается нулевой.
+function revOf_(state) {
+  var rev = state ? state[REV_FIELD] : 0;
+  return typeof rev === "number" && isFinite(rev) ? rev : 0;
 }
 
 // ===== HTTP =====
 
-// GET — отдать сохранённые данные приложению
+// GET — отдать сохранённые данные приложению вместе с их версией
 function doGet(e) {
   if (!authorized_(e)) return jsonOut_({ ok: false, error: "unauthorized" });
   try {
     var state = readState_();
-    return state ? jsonOut_(state) : jsonOut_({ empty: true });
+    if (!state) return jsonOut_({ empty: true, hubRev: 0 });
+    state[REV_FIELD] = revOf_(state);
+    return jsonOut_(state);
   } catch (err) {
     return jsonOut_({ ok: false, error: String(err) });
   }
 }
 
-// POST — сохранить данные приложения
+// POST — сохранить данные приложения, если с момента его чтения никто не писал
 function doPost(e) {
   if (!authorized_(e)) return jsonOut_({ ok: false, error: "unauthorized" });
   var lock = LockService.getScriptLock();
@@ -135,9 +152,29 @@ function doPost(e) {
     ) {
       return jsonOut_({ ok: false, error: "bad payload" });
     }
+    var base = payload[BASE_FIELD];
+    delete payload[BASE_FIELD];
+    delete payload[REV_FIELD]; // версию ставит только хаб, даже если её прислали
+
+    var current = revOf_(readState_());
+    if (typeof base === "number" && base !== current) {
+      // Устройство сливало свои правки со старой версией, а хаб за это время
+      // принял чужую запись. Не затираем её: устройство заберёт свежее и повторит.
+      return jsonOut_({ ok: false, error: "conflict", hubRev: current });
+    }
+
+    var next = current + 1;
+    payload[REV_FIELD] = next;
     writeState_(payload);
-    writeReadable_(payload);
-    return jsonOut_({ ok: true });
+    // Лист «Операции» только копия для глаз. Его сбой не должен превращать
+    // уже сохранённые данные в отказ, иначе устройство повторяло бы запись зря.
+    var warning = "";
+    try {
+      writeReadable_(payload);
+    } catch (err) {
+      warning = "readable copy: " + String(err);
+    }
+    return jsonOut_(warning ? { ok: true, hubRev: next, warning: warning } : { ok: true, hubRev: next });
   } catch (err) {
     return jsonOut_({ ok: false, error: String(err) });
   } finally {

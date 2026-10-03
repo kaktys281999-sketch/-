@@ -9,7 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsx lib/calc.test.ts"
+    "test": "tsx lib/calc.test.ts && tsx lib/sync.test.ts"
   },
   "dependencies": {
     "next": "15.5.27",

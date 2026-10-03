@@ -319,8 +319,25 @@ export function hubErrorMessage(error: unknown): string {
   if (e === "unauthorized") {
     return "Хаб не принял токен: проверьте ссылку синхронизации (…/exec?token=…)";
   }
+  if (e === "conflict") return "Данные одновременно меняли на другом устройстве, повторим";
   if (/lock/i.test(e)) return "Хаб занят другим устройством, повторим позже";
   return e ? `Хаб ответил ошибкой: ${e}` : "Хаб отклонил запрос";
+}
+
+// Хаб отказал в записи: с тех пор, как мы его прочитали, туда записало другое
+// устройство. Ничего не потеряно, нужен новый круг «забрать, слить, отправить».
+export class HubConflictError extends Error {
+  constructor() {
+    super(hubErrorMessage("conflict"));
+    this.name = "HubConflictError";
+  }
+}
+
+// Версия документа в хабе. Хаб старого образца её не знает, тогда null, и
+// отправка идёт как раньше, без сверки версии.
+function hubRevOf(d: unknown): number | null {
+  const rev = d && typeof d === "object" ? (d as { hubRev?: unknown }).hubRev : undefined;
+  return typeof rev === "number" && Number.isFinite(rev) ? rev : null;
 }
 
 // Запрос к хабу с ограничением по времени. Раунды синхронизации идут по
@@ -350,8 +367,15 @@ function hubHttpMessage(status: number): string {
   return `Хаб ответил HTTP ${status}`;
 }
 
-// Загрузить состояние из таблицы (GET). Возвращает null, если таблица пустая.
-export async function pull(url: string): Promise<SyncPayload | null> {
+export interface PullResult {
+  // null, если хаб пустой
+  payload: SyncPayload | null;
+  // версия документа, на которой будет собрана отправка; null у старого хаба
+  rev: number | null;
+}
+
+// Загрузить состояние из таблицы (GET).
+export async function pull(url: string): Promise<PullResult> {
   const sep = url.includes("?") ? "&" : "?";
   const res = await hubFetch(`${url}${sep}action=load&t=${Date.now()}`, {
     method: "GET",
@@ -367,17 +391,27 @@ export async function pull(url: string): Promise<SyncPayload | null> {
   if (data && typeof data === "object" && (data as { ok?: unknown }).ok === false) {
     throw new Error(hubErrorMessage((data as { error?: unknown }).error));
   }
-  if (data && typeof data === "object" && (data as { empty?: unknown }).empty) return null;
+  const rev = hubRevOf(data);
+  if (data && typeof data === "object" && (data as { empty?: unknown }).empty) {
+    return { payload: null, rev };
+  }
   if (!isValidPayload(data)) throw new Error("Таблица вернула неверные данные");
-  return data;
+  return { payload: data, rev };
 }
 
-// Сохранить состояние в таблицу (POST text/plain — чтобы не было CORS-preflight)
-export async function push(url: string, payload: SyncPayload): Promise<void> {
+// Сохранить состояние в таблицу (POST text/plain — чтобы не было CORS-preflight).
+// baseRev это версия, прочитанная перед слиянием. Хаб примет запись, только если
+// с тех пор в него никто не писал, иначе бросаем HubConflictError.
+export async function push(
+  url: string,
+  payload: SyncPayload,
+  baseRev: number | null = null
+): Promise<void> {
+  const body = baseRev === null ? payload : { ...payload, baseRev };
   const res = await hubFetch(url, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
     redirect: "follow",
   });
   if (!res.ok) throw new Error(hubHttpMessage(res.status));
@@ -389,6 +423,9 @@ export async function push(url: string, payload: SyncPayload): Promise<void> {
     data = await res.json();
   } catch {
     throw new Error("Хаб ответил не JSON: сохранение не подтверждено");
+  }
+  if (data && typeof data === "object" && (data as { error?: unknown }).error === "conflict") {
+    throw new HubConflictError();
   }
   if (!data || typeof data !== "object" || (data as { ok?: unknown }).ok !== true) {
     throw new Error(hubErrorMessage((data as { error?: unknown } | null)?.error));

@@ -46,7 +46,7 @@ import {
   accountWithoutReconciliation,
   accountsNeedingReconciliation,
 } from "./calc";
-import { mergeStates, pull, push, toPayload, fromPayload, canonicalJson } from "./sync";
+import { mergeStates, pull, push, toPayload, fromPayload, canonicalJson, HubConflictError } from "./sync";
 import { freshDraft, pickToAccount, findRecentDuplicate } from "./draft";
 import { ensureAlfaAccounts } from "./accounts";
 import { AppState, Operation, Debt, Credit, RecurringRule, Transfer } from "./types";
@@ -1453,9 +1453,34 @@ async function hubTests() {
     globalThis.fetch = reply(JSON.stringify({ ok: false, error: "unauthorized" }));
     eq((await outcome(() => pull("https://hub/exec"))).includes("токен"), true, "pull: неверный токен — понятная ошибка");
     globalThis.fetch = reply(JSON.stringify({ empty: true }));
-    eq(await pull("https://hub/exec"), null, "pull: пустой хаб — null");
+    eq(await pull("https://hub/exec"), { payload: null, rev: null }, "pull: пустой хаб старого образца — данных и версии нет");
+    globalThis.fetch = reply(JSON.stringify({ empty: true, hubRev: 0 }));
+    eq(await pull("https://hub/exec"), { payload: null, rev: 0 }, "pull: пустой хаб нового образца — версия 0");
+    globalThis.fetch = reply(JSON.stringify({ ...payload, hubRev: 7 }));
+    eq((await pull("https://hub/exec")).rev, 7, "pull: версия документа из хаба");
+    globalThis.fetch = reply(JSON.stringify(payload));
+    eq((await pull("https://hub/exec")).rev, null, "pull: хаб без версии — отправляем как раньше");
     globalThis.fetch = reply("not found", 404);
     eq((await outcome(() => pull("https://hub/exec"))).includes("404"), true, "pull: 404 — ошибка");
+
+    // Отправка несёт версию, на которой собрана, и только если хаб её знает
+    const sent: unknown[] = [];
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      sent.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ ok: true, hubRev: 8 }), { status: 200 });
+    }) as typeof fetch;
+    await push("https://hub/exec", payload, 7);
+    await push("https://hub/exec", payload);
+    eq((sent[0] as { baseRev?: number }).baseRev, 7, "push: версия уходит в хаб");
+    eq("baseRev" in (sent[1] as object), false, "push: без версии старый хаб получает прежний документ");
+    globalThis.fetch = reply(JSON.stringify({ ok: false, error: "conflict", hubRev: 9 }));
+    let conflict: unknown = null;
+    try {
+      await push("https://hub/exec", payload, 7);
+    } catch (e) {
+      conflict = e;
+    }
+    eq(conflict instanceof HubConflictError, true, "push: чужая свежая запись — отдельная ошибка для повтора круга");
   } finally {
     globalThis.fetch = realFetch;
   }
